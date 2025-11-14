@@ -1,0 +1,16 @@
+body, html, #root { height: 100%; margin: 0; font-family: Arial, sans-serif; }
+.app { display:flex; height:100%; }
+.sidebar { width: 320px; border-right: 1px solid #e6e6e6; padding: 12px; box-sizing:border-box; }
+.main { flex:1; padding:12px; }
+.meta { width: 200px; border-left: 1px solid #e6e6e6; padding:12px; }
+.panel ul { padding:0; margin:0; }
+.panel li { list-style:none; padding:6px 4px; display:flex; justify-content:space-between; }
+.auth { max-width:320px; margin: 40px auto; }
+.auth input { display:block; width:100%; margin:8px 0; padding:8px }
+.row { display:flex; gap:8px }
+.messages { height: 60vh; overflow:auto; border:1px solid #f0f0f0; padding:8px; background:#fafafa }
+.composer { display:flex; gap:8px; margin-top:8px }
+.msg { padding:6px; margin:6px 0; border-radius:6px; max-width:70%; }
+.msg.me { background:#d1ffd8; margin-left:auto }
+.msg.them { background:#fff }
+.chatHeader { display:flex; justify-content:space-between; align-items:center }

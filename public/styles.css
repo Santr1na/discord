@@ -1,0 +1,9 @@
+body { font-family: Arial, sans-serif; margin: 0; height: 100vh; display:flex; }
+#auth { margin: auto; width: 320px; }
+.left { width: 220px; border-right: 1px solid #ddd; padding: 10px; }
+.center { flex: 1; padding: 10px; display:flex; flex-direction:column; }
+.right { width: 220px; border-left: 1px solid #ddd; padding: 10px; }
+#messages { flex: 1; border: 1px solid #eee; padding: 8px; overflow:auto; background:#fafafa; }
+#composer { display:flex; gap:8px; margin-top:8px; }
+li { list-style:none; padding:6px; border-bottom:1px solid #f0f0f0; cursor:pointer; }
+li:hover { background:#f7f7f7; }
