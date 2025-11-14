@@ -9,26 +9,50 @@ const el = (id) => document.getElementById(id);
 async function request(path, opts = {}){
   const headers = opts.headers || {};
   if (token) headers['Authorization'] = 'Bearer ' + token;
-  const res = await fetch('/api' + path, { headers, ...opts });
-  return res.json();
+  console.log('[client] api request', { path: '/api' + path, hasToken: !!token });
+  try {
+    const res = await fetch('/api' + path, { headers, ...opts });
+    const body = await res.json().catch(() => null);
+    console.log('[client] api response', { path: '/api' + path, status: res.status, body });
+    return body;
+  } catch (err) {
+    console.error('[client] api fetch error', { path: '/api' + path, err: err && err.message });
+    throw err;
+  }
 }
 
 el('btnRegister').onclick = async () => {
   const username = el('username').value;
   const password = el('password').value;
-  const r = await fetch('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username, password }) });
-  const body = await r.json();
-  if (body.error) return el('authMsg').innerText = body.error;
-  token = body.token; me = body.user; afterLogin();
+  console.log('[client] register submit', { username });
+  try {
+    const r = await fetch('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username, password }) });
+    const body = await r.json().catch(()=>null);
+    console.log('[client] register response', { status: r.status, body });
+    if (!body) return el('authMsg').innerText = 'No response body from server';
+    if (body.error) return el('authMsg').innerText = body.error;
+    token = body.token; me = body.user; afterLogin();
+  } catch (err) {
+    console.error('[client] register error', err);
+    el('authMsg').innerText = 'Network error: cannot reach server';
+  }
 };
 
 el('btnLogin').onclick = async () => {
   const username = el('username').value;
   const password = el('password').value;
-  const r = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username, password }) });
-  const body = await r.json();
-  if (body.error) return el('authMsg').innerText = body.error;
-  token = body.token; me = body.user; afterLogin();
+  console.log('[client] login submit', { username });
+  try {
+    const r = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username, password }) });
+    const body = await r.json().catch(()=>null);
+    console.log('[client] login response', { status: r.status, body });
+    if (!body) return el('authMsg').innerText = 'No response body from server';
+    if (body.error) return el('authMsg').innerText = body.error;
+    token = body.token; me = body.user; afterLogin();
+  } catch (err) {
+    console.error('[client] login error', err);
+    el('authMsg').innerText = 'Network error: cannot reach server';
+  }
 };
 
 async function afterLogin(){
@@ -89,8 +113,11 @@ el('callBtn').onclick = async () => {
 };
 
 function connectSocket(){
+  console.log('[client] connecting socket, hasToken=', !!token);
   socket = io({ auth: { token } });
-  socket.on('connect_error', (err) => { console.error('socket error', err); });
+  socket.on('connect', () => console.log('[client] socket connected', { id: socket.id }));
+  socket.on('disconnect', (reason) => console.log('[client] socket disconnected', reason));
+  socket.on('connect_error', (err) => { console.error('[client] socket connect_error', err); });
   socket.on('private_message', (m) => {
     if (currentChatUser && (m.from === currentChatUser.id || m.to === currentChatUser.id)) loadMessages(currentChatUser.id);
   });
@@ -109,6 +136,12 @@ function connectSocket(){
   socket.on('webrtc-candidate', async (data) => {
     const { candidate } = data;
     if (pc) pc.addIceCandidate(candidate).catch(console.error);
+  });
+
+  socket.on('webrtc-hangup', (data) => {
+    console.log('[client] webrtc-hangup received', data);
+    if (pc){ try { pc.close() } catch(e){}; pc = null }
+    alert('Call ended by the other user');
   });
 
   loadFriends();

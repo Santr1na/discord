@@ -26,28 +26,55 @@ const findUserById = (id) => db.prepare('SELECT * FROM users WHERE id = ?').get(
 
 app.post('/api/register', async (req, res) => {
   const { username, password } = req.body;
-  if (!username || !password) return res.status(400).json({ error: 'username and password required' });
-  const existing = findUserByUsername(username);
-  if (existing) return res.status(400).json({ error: 'username taken' });
-  const hash = await bcrypt.hash(password, 10);
-  const info = db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run(username, hash);
-  const user = findUserById(info.lastInsertRowid);
-  const token = jwt.sign({ id: user.id, username: user.username }, SECRET);
-  res.json({ token, user: { id: user.id, username: user.username } });
+  console.log(`[auth] register attempt from ${req.ip} username=${username}`);
+  try {
+    if (!username || !password) {
+      console.warn('[auth] register missing fields', { ip: req.ip, username });
+      return res.status(400).json({ error: 'username and password required' });
+    }
+    const existing = findUserByUsername(username);
+    if (existing) {
+      console.warn('[auth] register username taken', { username, ip: req.ip });
+      return res.status(400).json({ error: 'username taken' });
+    }
+    const hash = await bcrypt.hash(password, 10);
+    const info = db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run(username, hash);
+    const user = findUserById(info.lastInsertRowid);
+    const token = jwt.sign({ id: user.id, username: user.username }, SECRET);
+    console.log('[auth] register success', { userId: user.id, username: user.username, ip: req.ip });
+    res.json({ token, user: { id: user.id, username: user.username } });
+  } catch (err) {
+    console.error('[auth] register error', { err: err && err.message, ip: req.ip, username });
+    res.status(500).json({ error: 'internal error' });
+  }
 });
 
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
-  const user = findUserByUsername(username);
-  if (!user) return res.status(400).json({ error: 'invalid credentials' });
-  const ok = await bcrypt.compare(password, user.password);
-  if (!ok) return res.status(400).json({ error: 'invalid credentials' });
-  const token = jwt.sign({ id: user.id, username: user.username }, SECRET);
-  res.json({ token, user: { id: user.id, username: user.username } });
+  console.log(`[auth] login attempt from ${req.ip} username=${username}`);
+  try {
+    const user = findUserByUsername(username);
+    if (!user) {
+      console.warn('[auth] login failed - user not found', { username, ip: req.ip });
+      return res.status(400).json({ error: 'invalid credentials' });
+    }
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) {
+      console.warn('[auth] login failed - bad password', { username, userId: user.id, ip: req.ip });
+      return res.status(400).json({ error: 'invalid credentials' });
+    }
+    const token = jwt.sign({ id: user.id, username: user.username }, SECRET);
+    console.log('[auth] login success', { userId: user.id, username: user.username, ip: req.ip });
+    res.json({ token, user: { id: user.id, username: user.username } });
+  } catch (err) {
+    console.error('[auth] login error', { err: err && err.message, ip: req.ip, username });
+    res.status(500).json({ error: 'internal error' });
+  }
 });
 
 function authMiddleware(req, res, next) {
   const auth = req.headers.authorization;
+  console.log('[auth] middleware check', { ip: req.ip, authPresent: !!auth });
   if (!auth) return res.status(401).json({ error: 'missing auth' });
   const parts = auth.split(' ');
   if (parts.length !== 2) return res.status(401).json({ error: 'bad auth' });
@@ -56,6 +83,7 @@ function authMiddleware(req, res, next) {
     req.user = payload;
     next();
   } catch (e) {
+    console.warn('[auth] invalid token', { ip: req.ip, err: e && e.message });
     res.status(401).json({ error: 'invalid token' });
   }
 }
@@ -130,12 +158,18 @@ const online = new Map(); // userId -> socket.id
 
 io.use((socket, next) => {
   const token = socket.handshake.auth && socket.handshake.auth.token;
-  if (!token) return next(new Error('unauthorized'));
+  console.log('[socket] auth attempt ip=', socket.handshake.address, ' tokenPresent=', !!token);
+  if (!token) {
+    console.warn('[socket] missing token on handshake', { addr: socket.handshake.address });
+    return next(new Error('unauthorized'));
+  }
   try {
     const payload = jwt.verify(token, SECRET);
     socket.user = payload;
+    console.log('[socket] auth success', { userId: payload.id, username: payload.username });
     next();
   } catch (e) {
+    console.warn('[socket] invalid token on handshake', { err: e && e.message });
     next(new Error('invalid token'));
   }
 });
@@ -187,4 +221,10 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log('Server listening on', PORT);
+});
+
+// Generic error handler for express
+app.use((err, req, res, next) => {
+  console.error('[server] unhandled error', err && err.stack ? err.stack : err);
+  try { res.status(500).json({ error: 'internal' }); } catch(e) { /* ignore */ }
 });
