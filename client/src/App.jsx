@@ -111,6 +111,7 @@ function Chat({ socket, me, peer, onCall }){
 }
 
 export default function App(){
+  const API = import.meta.env.VITE_API_BASE || ''
   const [token, setToken] = useState(localStorage.token || null)
   const [me, setMe] = useState(null)
   const [socket, setSocket] = useState(null)
@@ -126,7 +127,7 @@ export default function App(){
     // fetch my info
     fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + token } }).then(r=>r.json()).then(j=>{ setMe(j.user) })
     // connect socket
-    const s = io({ auth: { token } })
+    const s = (API && API !== '') ? io(API, { auth: { token } }) : io({ auth: { token } })
     setSocket(s)
     s.on('connect_error', e=>console.error('sock err', e))
 
@@ -153,23 +154,23 @@ export default function App(){
   async function onAuth(t, user){ setToken(t); setMe(user) }
 
   async function loadUsers(){
-    const res = await fetch('/api/users', { headers: { 'Authorization': 'Bearer ' + token } })
+    const res = await fetch((API || '') + '/api/users', { headers: { 'Authorization': 'Bearer ' + token } })
     const j = await res.json(); setUsers(j.users || [])
   }
 
   async function loadFriends(){
-    const res = await fetch('/api/friends', { headers: { 'Authorization': 'Bearer ' + token } })
+    const res = await fetch((API || '') + '/api/friends', { headers: { 'Authorization': 'Bearer ' + token } })
     const j = await res.json(); setFriends(j.friends || []); setIncoming(j.incoming || [])
   }
 
   async function addFriend(username){
-    await fetch('/api/friends/add', { method:'POST', headers:{'Content-Type':'application/json', 'Authorization':'Bearer ' + token}, body: JSON.stringify({ username }) })
+    await fetch((API || '') + '/api/friends/add', { method:'POST', headers:{'Content-Type':'application/json', 'Authorization':'Bearer ' + token}, body: JSON.stringify({ username }) })
     loadFriends()
     alert('friend request sent')
   }
 
   async function acceptFriend(requesterId){
-    await fetch('/api/friends/accept', { method:'POST', headers:{'Content-Type':'application/json', 'Authorization':'Bearer ' + token}, body: JSON.stringify({ requesterId }) })
+    await fetch((API || '') + '/api/friends/accept', { method:'POST', headers:{'Content-Type':'application/json', 'Authorization':'Bearer ' + token}, body: JSON.stringify({ requesterId }) })
     loadFriends()
   }
 
