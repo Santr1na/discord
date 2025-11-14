@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "build-client": "cd client && npm install && npm run build && cp -r dist/* ../public/"
   },
   "dependencies": {
     "bcrypt": "^5.1.0",

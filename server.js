@@ -135,6 +135,7 @@ app.get('/api/friends', authMiddleware, (req, res) => {
       WHERE f.addressee = ? AND f.status = 'pending'
     `, [req.user.id]);
 
+    console.log('[api] friends for', req.user.username, 'accepted:', accepted.length, 'incoming:', incoming.length);
     res.json({ friends: accepted, incoming });
   })().catch(err => { console.error('[friends] list error', err); res.status(500).json({ error: 'internal' }); });
 });
@@ -149,6 +150,7 @@ app.get('/api/users', authMiddleware, (req, res) => {
     } else {
       users = await db.all('SELECT id, username FROM users WHERE id != ?', [req.user.id]);
     }
+    console.log('[api] users for', req.user.username, 'search:', search, 'count:', users.length);
     res.json({ users });
   })().catch(err => { console.error('[users] list error', err); res.status(500).json({ error: 'internal' }); });
 });
@@ -184,6 +186,7 @@ io.use((socket, next) => {
 
 io.on('connection', (socket) => {
   const userId = socket.user.id;
+  console.log('[socket] user connected', socket.user.username);
   online.set(userId, socket.id);
 
   socket.on('private_message', async (data) => {
@@ -192,6 +195,7 @@ io.on('connection', (socket) => {
       await db.run('INSERT INTO messages (from_id, to_id, content, created_at) VALUES (?, ?, ?, ?)', [userId, to, content, Date.now()]);
       const toSocket = online.get(to);
       const payload = { from: userId, to, content, created_at: Date.now() };
+      console.log('[socket] message from', socket.user.username, 'to', to, 'content length', content.length);
       if (toSocket) io.to(toSocket).emit('private_message', payload);
       socket.emit('private_message', payload);
     } catch (err) { console.error('[socket] private_message error', err); }
