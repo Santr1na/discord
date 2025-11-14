@@ -125,6 +125,8 @@ export default function App(){
   const [incoming, setIncoming] = useState([])
   const [selected, setSelected] = useState(null)
   const [callActivePeerId, setCallActivePeerId] = useState(null)
+  const [callStartTime, setCallStartTime] = useState(null)
+  const [callEndTime, setCallEndTime] = useState(null)
   const pcRef = useRef(null)
 
   useEffect(()=>{
@@ -140,6 +142,8 @@ export default function App(){
     s.on('webrtc-offer', async (data) => {
       const { from, offer } = data
       setCallActivePeerId(from)
+      setCallStartTime(new Date())
+      setCallEndTime(null)
       await startAsReceiver(from, offer, s)
     })
 
@@ -157,6 +161,7 @@ export default function App(){
       // the other party hung up
       setCallActivePeerId(null)
       if (pcRef.current){ try { pcRef.current.close() } catch(e){}; pcRef.current = null }
+      setCallEndTime(new Date())
       alert('Call ended by other user')
     })
 
@@ -204,6 +209,8 @@ export default function App(){
     const offer = await pc.createOffer(); await pc.setLocalDescription(offer)
     socket.emit('webrtc-offer', { to: targetId, offer })
     setCallActivePeerId(targetId)
+    setCallStartTime(new Date())
+    setCallEndTime(null)
   }
 
   async function startAsReceiver(from, offer, socket){
@@ -216,12 +223,15 @@ export default function App(){
     await pc.setRemoteDescription(offer)
     const answer = await pc.createAnswer(); await pc.setLocalDescription(answer)
     socket.emit('webrtc-answer', { to: from, answer })
+    setCallStartTime(new Date())
+    setCallEndTime(null)
   }
 
   function hangup(){
     if (pcRef.current){ try { pcRef.current.close() } catch(e){}; pcRef.current = null }
     if (callActivePeerId && socket) socket.emit('webrtc-hangup', { to: callActivePeerId })
     setCallActivePeerId(null)
+    setCallEndTime(new Date())
   }
 
   if (!token) return <Auth onAuth={onAuth} />
@@ -234,10 +244,12 @@ export default function App(){
       </div>
       <div className="main">
         <div className="topBar">
-          <div className="status">{selected ? `Currently chatting with: ${selected.username}` : 'No user selected'}</div>
-          <div className="callStatus">{callActivePeerId ? 'In call' : 'Not in call'}</div>
-          {callActivePeerId && <button className="btn danger" onClick={hangup}>Hang Up</button>}
-        </div>
+            <div className="status">{selected ? `Currently chatting with: ${selected.username}` : 'No user selected'}</div>
+            <div className="callStatus">{callActivePeerId ? 'In call' : 'Not in call'}</div>
+            {callStartTime && <div>Call started at: {callStartTime.toLocaleTimeString()}</div>}
+            {callEndTime && <div>Call ended at: {callEndTime.toLocaleTimeString()}</div>}
+            {callActivePeerId && <button className="btn danger" onClick={hangup}>Hang Up</button>}
+          </div>
         {selected ? <Chat socket={socket} me={me} peer={selected} onCall={startCall} onHangup={hangup} /> : <div className="placeholder">Choose a user to start chatting</div>}
       </div>
       <div className="meta">Logged as: {me && me.username}</div>
