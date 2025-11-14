@@ -3,20 +3,27 @@ let me = null;
 let socket = null;
 let currentChatUser = null;
 let pc = null;
+// API base: read from meta tag <meta name="api-base" content="https://api.example.com"> or from window.API_BASE
+const META_API = (typeof document !== 'undefined' && document.querySelector('meta[name="api-base"]')) ? document.querySelector('meta[name="api-base"]').content : null;
+const API_BASE = META_API || (typeof window !== 'undefined' && window.API_BASE) || '';
 
 const el = (id) => document.getElementById(id);
 
 async function request(path, opts = {}){
   const headers = opts.headers || {};
   if (token) headers['Authorization'] = 'Bearer ' + token;
-  console.log('[client] api request', { path: '/api' + path, hasToken: !!token });
+  const fullPath = (API_BASE || '') + '/api' + path;
+  console.log('[client] api request', { path: fullPath, hasToken: !!token });
   try {
-    const res = await fetch('/api' + path, { headers, ...opts });
-    const body = await res.json().catch(() => null);
-    console.log('[client] api response', { path: '/api' + path, status: res.status, body });
-    return body;
+    const res = await fetch(fullPath, { headers, ...opts });
+    // try parse json, otherwise return text for easier debugging
+    let body = null;
+    try { body = await res.json(); }
+    catch (e) { body = await res.text().catch(() => null); }
+    console.log('[client] api response', { path: fullPath, status: res.status, body });
+    return { status: res.status, body };
   } catch (err) {
-    console.error('[client] api fetch error', { path: '/api' + path, err: err && err.message });
+    console.error('[client] api fetch error', { path: fullPath, err: err && err.message });
     throw err;
   }
 }
@@ -24,14 +31,18 @@ async function request(path, opts = {}){
 el('btnRegister').onclick = async () => {
   const username = el('username').value;
   const password = el('password').value;
-  console.log('[client] register submit', { username });
+  console.log('[client] register submit', { username, api: API_BASE || '(same origin)' });
   try {
-    const r = await fetch('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username, password }) });
-    const body = await r.json().catch(()=>null);
-    console.log('[client] register response', { status: r.status, body });
-    if (!body) return el('authMsg').innerText = 'No response body from server';
-    if (body.error) return el('authMsg').innerText = body.error;
-    token = body.token; me = body.user; afterLogin();
+    const r = await fetch((API_BASE || '') + '/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username, password }) });
+    let parsed;
+    try { parsed = await r.json(); } catch(e) { parsed = await r.text().catch(()=>null); }
+    console.log('[client] register response', { status: r.status, parsed });
+    if (r.status !== 200) {
+      const msg = parsed && parsed.error ? parsed.error : (typeof parsed === 'string' ? parsed : 'Registration failed');
+      el('authMsg').innerText = msg;
+      return;
+    }
+    token = parsed.token; me = parsed.user; afterLogin();
   } catch (err) {
     console.error('[client] register error', err);
     el('authMsg').innerText = 'Network error: cannot reach server';
@@ -41,14 +52,18 @@ el('btnRegister').onclick = async () => {
 el('btnLogin').onclick = async () => {
   const username = el('username').value;
   const password = el('password').value;
-  console.log('[client] login submit', { username });
+  console.log('[client] login submit', { username, api: API_BASE || '(same origin)' });
   try {
-    const r = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username, password }) });
-    const body = await r.json().catch(()=>null);
-    console.log('[client] login response', { status: r.status, body });
-    if (!body) return el('authMsg').innerText = 'No response body from server';
-    if (body.error) return el('authMsg').innerText = body.error;
-    token = body.token; me = body.user; afterLogin();
+    const r = await fetch((API_BASE || '') + '/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username, password }) });
+    let parsed;
+    try { parsed = await r.json(); } catch(e) { parsed = await r.text().catch(()=>null); }
+    console.log('[client] login response', { status: r.status, parsed });
+    if (r.status !== 200) {
+      const msg = parsed && parsed.error ? parsed.error : (typeof parsed === 'string' ? parsed : 'Login failed');
+      el('authMsg').innerText = msg;
+      return;
+    }
+    token = parsed.token; me = parsed.user; afterLogin();
   } catch (err) {
     console.error('[client] login error', err);
     el('authMsg').innerText = 'Network error: cannot reach server';
