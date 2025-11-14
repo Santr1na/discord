@@ -107,7 +107,14 @@ app.get('/api/friends', authMiddleware, (req, res) => {
 });
 
 app.get('/api/users', authMiddleware, (req, res) => {
-  const users = db.prepare('SELECT id, username FROM users WHERE id != ?').all(req.user.id);
+  const search = (req.query.search || '').trim();
+  let users;
+  if (search) {
+    const q = `%${search}%`;
+    users = db.prepare('SELECT id, username FROM users WHERE id != ? AND username LIKE ?').all(req.user.id, q);
+  } else {
+    users = db.prepare('SELECT id, username FROM users WHERE id != ?').all(req.user.id);
+  }
   res.json({ users });
 });
 
@@ -164,6 +171,12 @@ io.on('connection', (socket) => {
     const { to, candidate } = data;
     const toSocket = online.get(to);
     if (toSocket) io.to(toSocket).emit('webrtc-candidate', { from: userId, candidate });
+  });
+
+  socket.on('webrtc-hangup', (data) => {
+    const { to } = data;
+    const toSocket = online.get(to);
+    if (toSocket) io.to(toSocket).emit('webrtc-hangup', { from: userId });
   });
 
   socket.on('disconnect', () => {

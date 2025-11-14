@@ -34,15 +34,20 @@ function Auth({ onAuth }){
   )
 }
 
-function UsersList({ users, onSelect, onAdd }){
+function UsersList({ users, onSelect, onAdd, onSearch }){
+  const [q, setQ] = React.useState('')
   return (
     <div className="panel users">
-      <h3>Users</h3>
+      <h3>Find users</h3>
+      <div className="searchRow">
+        <input placeholder="Search by username" value={q} onChange={e=>setQ(e.target.value)} />
+        <button onClick={() => onSearch(q)}>Search</button>
+      </div>
       <ul>
         {users.map(u => (
           <li key={u.id}>
-            <span onClick={() => onSelect(u)}>{u.username}</span>
-            <button onClick={() => onAdd(u.username)}>Add</button>
+            <button className="linkLike" onClick={() => onSelect(u)}>{u.username}</button>
+            <button className="btn small" onClick={() => onAdd(u.username)}>Add</button>
           </li>
         ))}
       </ul>
@@ -119,6 +124,7 @@ export default function App(){
   const [friends, setFriends] = useState([])
   const [incoming, setIncoming] = useState([])
   const [selected, setSelected] = useState(null)
+  const [callActivePeerId, setCallActivePeerId] = useState(null)
   const pcRef = useRef(null)
 
   useEffect(()=>{
@@ -133,6 +139,7 @@ export default function App(){
 
     s.on('webrtc-offer', async (data) => {
       const { from, offer } = data
+      setCallActivePeerId(from)
       await startAsReceiver(from, offer, s)
     })
 
@@ -146,6 +153,13 @@ export default function App(){
       if (pcRef.current) pcRef.current.addIceCandidate(candidate).catch(console.error)
     })
 
+    s.on('webrtc-hangup', (data) => {
+      // the other party hung up
+      setCallActivePeerId(null)
+      if (pcRef.current){ try { pcRef.current.close() } catch(e){}; pcRef.current = null }
+      alert('Call ended by other user')
+    })
+
     return () => s.close()
   }, [token])
 
@@ -153,8 +167,9 @@ export default function App(){
 
   async function onAuth(t, user){ setToken(t); setMe(user) }
 
-  async function loadUsers(){
-    const res = await fetch((API || '') + '/api/users', { headers: { 'Authorization': 'Bearer ' + token } })
+  async function loadUsers(q){
+    const url = (API || '') + '/api/users' + (q ? ('?search=' + encodeURIComponent(q)) : '')
+    const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } })
     const j = await res.json(); setUsers(j.users || [])
   }
 
@@ -164,9 +179,13 @@ export default function App(){
   }
 
   async function addFriend(username){
-    await fetch((API || '') + '/api/friends/add', { method:'POST', headers:{'Content-Type':'application/json', 'Authorization':'Bearer ' + token}, body: JSON.stringify({ username }) })
-    loadFriends()
-    alert('friend request sent')
+    try{
+      const res = await fetch((API || '') + '/api/friends/add', { method:'POST', headers:{'Content-Type':'application/json', 'Authorization':'Bearer ' + token}, body: JSON.stringify({ username }) })
+      const j = await res.json();
+      if (j.error) return alert('Error: ' + j.error)
+      loadFriends()
+      alert('friend request sent')
+    }catch(e){ alert('Network error: could not reach server') }
   }
 
   async function acceptFriend(requesterId){
@@ -184,6 +203,7 @@ export default function App(){
     pc.ontrack = (ev) => { console.log('remote track', ev) }
     const offer = await pc.createOffer(); await pc.setLocalDescription(offer)
     socket.emit('webrtc-offer', { to: targetId, offer })
+    setCallActivePeerId(targetId)
   }
 
   async function startAsReceiver(from, offer, socket){
@@ -198,16 +218,27 @@ export default function App(){
     socket.emit('webrtc-answer', { to: from, answer })
   }
 
+  function hangup(){
+    if (pcRef.current){ try { pcRef.current.close() } catch(e){}; pcRef.current = null }
+    if (callActivePeerId && socket) socket.emit('webrtc-hangup', { to: callActivePeerId })
+    setCallActivePeerId(null)
+  }
+
   if (!token) return <Auth onAuth={onAuth} />
 
   return (
     <div className="app">
       <div className="sidebar">
-        <UsersList users={users} onSelect={u=>setSelected(u)} onAdd={addFriend} />
+        <UsersList users={users} onSelect={u=>setSelected(u)} onAdd={addFriend} onSearch={loadUsers} />
         <Friends friends={friends} incoming={incoming} onSelect={u=>setSelected(u)} onAccept={acceptFriend} />
       </div>
       <div className="main">
-        {selected ? <Chat socket={socket} me={me} peer={selected} onCall={startCall} /> : <div className="placeholder">Choose a user to start chatting</div>}
+        <div className="topBar">
+          <div className="status">{selected ? `Currently chatting with: ${selected.username}` : 'No user selected'}</div>
+          <div className="callStatus">{callActivePeerId ? 'In call' : 'Not in call'}</div>
+          {callActivePeerId && <button className="btn danger" onClick={hangup}>Hang Up</button>}
+        </div>
+        {selected ? <Chat socket={socket} me={me} peer={selected} onCall={startCall} onHangup={hangup} /> : <div className="placeholder">Choose a user to start chatting</div>}
       </div>
       <div className="meta">Logged as: {me && me.username}</div>
     </div>
