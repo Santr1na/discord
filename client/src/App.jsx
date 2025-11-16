@@ -46,7 +46,7 @@ function UsersList({ users, onSelect, onAdd, onSearch }){
       <ul>
         {users.map(u => (
           <li key={u.id}>
-            <button className="linkLike" onClick={() => onSelect(u)}>{u.username}</button>
+            <button className="linkLike" onClick={() => onSelect(u.id)}>{u.username}</button>
             <button className="btn small" onClick={() => onAdd(u.username)}>Add</button>
           </li>
         ))}
@@ -60,7 +60,7 @@ function Friends({ friends, incoming, onSelect, onAccept }){
     <div className="panel friends">
       <h3>Friends</h3>
       <ul>
-        {friends.map(f => (<li key={f.id} onClick={() => onSelect(f)}>{f.username}</li>))}
+        {friends.map(f => (<li key={f.id} onClick={() => onSelect(f.id)}>{f.username}</li>))}
       </ul>
       <h4>Incoming</h4>
       <ul>
@@ -223,7 +223,7 @@ export default function App(){
     if (localVideoRef.current) localVideoRef.current.srcObject = stream
     stream.getTracks().forEach(t => pc.addTrack(t, stream))
     pc.onicecandidate = (e) => { if (e.candidate) socket.emit('webrtc-candidate', { to: targetId, candidate: e.candidate }) }
-    pc.ontrack = (ev) => { console.log('remote track received'); if (audioRef.current) audioRef.current.srcObject = ev.streams[0]; if (remoteVideoRef.current) remoteVideoRef.current.srcObject = ev.streams[0] }
+    pc.ontrack = (ev) => { console.log('remote track received'); if (audioRef.current) { audioRef.current.srcObject = ev.streams[0]; audioRef.current.play().catch(console.error); } if (remoteVideoRef.current) { remoteVideoRef.current.srcObject = ev.streams[0]; remoteVideoRef.current.play().catch(console.error); } }
     const offer = await pc.createOffer(); await pc.setLocalDescription(offer)
     socket.emit('webrtc-offer', { to: targetId, offer })
     setCallActivePeerId(targetId)
@@ -245,7 +245,7 @@ export default function App(){
     localStreamRef.current = stream
     if (localVideoRef.current) localVideoRef.current.srcObject = stream
     stream.getTracks().forEach(t => pc.addTrack(t, stream))
-    pc.ontrack = (ev) => { console.log('remote track received (receiver)'); if (audioRef.current) audioRef.current.srcObject = ev.streams[0]; if (remoteVideoRef.current) remoteVideoRef.current.srcObject = ev.streams[0] }
+    pc.ontrack = (ev) => { console.log('remote track received (receiver)'); if (audioRef.current) { audioRef.current.srcObject = ev.streams[0]; audioRef.current.play().catch(console.error); } if (remoteVideoRef.current) { remoteVideoRef.current.srcObject = ev.streams[0]; remoteVideoRef.current.play().catch(console.error); } }
     await pc.setRemoteDescription(offer)
     const answer = await pc.createAnswer(); await pc.setLocalDescription(answer)
     socket.emit('webrtc-answer', { to: from, answer })
@@ -327,12 +327,12 @@ export default function App(){
         </div>
       )}
       <div className="sidebar">
-        <UsersList users={users} onSelect={u=>setSelected(u)} onAdd={addFriend} onSearch={loadUsers} />
-        <Friends friends={friends} incoming={incoming} onSelect={u=>setSelected(u)} onAccept={acceptFriend} />
+        <UsersList users={users} onSelect={setSelected} onAdd={addFriend} onSearch={loadUsers} />
+        <Friends friends={friends} incoming={incoming} onSelect={setSelected} onAccept={acceptFriend} />
       </div>
       <div className="main">
         <div className="topBar">
-            <div className="status">{selected ? `Currently chatting with: ${selected.username}` : 'No user selected'}</div>
+            <div className="status">{selected ? `Currently chatting with: ${friends.find(f => f.id === selected)?.username || users.find(u => u.id === selected)?.username || 'Unknown'}` : 'No user selected'}</div>
             <div className="callStatus">{callActivePeerId ? 'In call' : 'Not in call'}</div>
             {callStartTime && <div>Call started at: {callStartTime.toLocaleTimeString()}</div>}
             {callEndTime && <div>Call ended at: {callEndTime.toLocaleTimeString()}</div>}
@@ -344,7 +344,10 @@ export default function App(){
               </>
             )}
           </div>
-        {selected ? <Chat socket={socket} me={me} peer={selected} onCall={(callData) => setOutgoingCall(callData)} onHangup={hangup} /> : <div className="placeholder">Choose a user to start chatting</div>}
+        {(() => {
+          const peer = friends.find(f => f.id === selected) || users.find(u => u.id === selected);
+          return peer ? <Chat socket={socket} me={me} peer={peer} onCall={(callData) => setOutgoingCall(callData)} onHangup={hangup} /> : <div className="placeholder">Choose a user to start chatting</div>;
+        })()}
       </div>
       <div className="meta">Logged as: {me && me.username}</div>
     </div>
