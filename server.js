@@ -105,6 +105,9 @@ app.post('/api/friends/add', authMiddleware, (req, res) => {
     const existing = await db.get('SELECT * FROM friends WHERE (requester = ? AND addressee = ?) OR (requester = ? AND addressee = ?)', [req.user.id, addressee.id, addressee.id, req.user.id]);
     if (existing) return res.status(400).json({ error: 'request exists' });
     await db.run('INSERT INTO friends (requester, addressee, status) VALUES (?, ?, ?)', [req.user.id, addressee.id, 'pending']);
+    // Notify addressee
+    const addresseeSocket = online.get(addressee.id);
+    if (addresseeSocket) io.to(addresseeSocket).emit('friend_request', { from: req.user.id, username: req.user.username });
     res.json({ ok: true });
   })().catch(err => { console.error('[friends] add error', err); res.status(500).json({ error: 'internal' }); });
 });
@@ -202,10 +205,13 @@ io.on('connection', (socket) => {
   });
 
   // WebRTC signaling: offer/answer/candidate
-  socket.on('webrtc-offer', (data) => {
+  socket.on('webrtc-offer', async (data) => {
     const { to, offer } = data;
     const toSocket = online.get(to);
-    if (toSocket) io.to(toSocket).emit('webrtc-offer', { from: userId, offer });
+    if (toSocket) {
+      const fromUser = await findUserById(userId);
+      io.to(toSocket).emit('webrtc-offer', { from: userId, username: fromUser.username, offer });
+    }
   });
 
   socket.on('webrtc-answer', (data) => {

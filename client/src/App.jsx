@@ -127,7 +127,9 @@ export default function App(){
   const [callActivePeerId, setCallActivePeerId] = useState(null)
   const [callStartTime, setCallStartTime] = useState(null)
   const [callEndTime, setCallEndTime] = useState(null)
+  const [incomingCall, setIncomingCall] = useState(null)
   const pcRef = useRef(null)
+  const audioRef = useRef(null)
 
   useEffect(()=>{
     if (!token) return;
@@ -140,11 +142,8 @@ export default function App(){
     s.on('connect_error', e=>console.error('sock err', e))
 
     s.on('webrtc-offer', async (data) => {
-      const { from, offer } = data
-      setCallActivePeerId(from)
-      setCallStartTime(new Date())
-      setCallEndTime(null)
-      await startAsReceiver(from, offer, s)
+      const { from, username, offer } = data
+      setIncomingCall({ from, username, offer })
     })
 
     s.on('webrtc-answer', async (data) => {
@@ -163,6 +162,10 @@ export default function App(){
       if (pcRef.current){ try { pcRef.current.close() } catch(e){}; pcRef.current = null }
       setCallEndTime(new Date())
       alert('Call ended by other user')
+    })
+
+    s.on('friend_request', () => {
+      loadFriends()
     })
 
     return () => s.close()
@@ -205,7 +208,7 @@ export default function App(){
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
     stream.getTracks().forEach(t => pc.addTrack(t, stream))
     pc.onicecandidate = (e) => { if (e.candidate) socket.emit('webrtc-candidate', { to: targetId, candidate: e.candidate }) }
-    pc.ontrack = (ev) => { console.log('remote track', ev) }
+    pc.ontrack = (ev) => { if (audioRef.current) audioRef.current.srcObject = ev.streams[0] }
     const offer = await pc.createOffer(); await pc.setLocalDescription(offer)
     socket.emit('webrtc-offer', { to: targetId, offer })
     setCallActivePeerId(targetId)
@@ -217,7 +220,7 @@ export default function App(){
     const pc = new RTCPeerConnection()
     pcRef.current = pc
     pc.onicecandidate = (e) => { if (e.candidate) socket.emit('webrtc-candidate', { to: from, candidate: e.candidate }) }
-    pc.ontrack = (ev) => { console.log('remote track (recv)', ev) }
+    pc.ontrack = (ev) => { if (audioRef.current) audioRef.current.srcObject = ev.streams[0] }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
     stream.getTracks().forEach(t => pc.addTrack(t, stream))
     await pc.setRemoteDescription(offer)
@@ -225,6 +228,22 @@ export default function App(){
     socket.emit('webrtc-answer', { to: from, answer })
     setCallStartTime(new Date())
     setCallEndTime(null)
+  }
+
+  async function acceptCall(){
+    if (!incomingCall) return;
+    const { from, offer } = incomingCall;
+    setIncomingCall(null);
+    setCallActivePeerId(from);
+    setCallStartTime(new Date());
+    setCallEndTime(null);
+    await startAsReceiver(from, offer, socket);
+  }
+
+  function rejectCall(){
+    if (!incomingCall) return;
+    socket.emit('webrtc-reject', { to: incomingCall.from });
+    setIncomingCall(null);
   }
 
   function hangup(){
@@ -238,6 +257,16 @@ export default function App(){
 
   return (
     <div className="app">
+      <audio ref={audioRef} autoPlay />
+      {incomingCall && (
+        <div className="modal">
+          <div className="modalContent">
+            <h3>Incoming call from {incomingCall.username}</h3>
+            <button className="btn" onClick={acceptCall}>Accept</button>
+            <button className="btn danger" onClick={rejectCall}>Reject</button>
+          </div>
+        </div>
+      )}
       <div className="sidebar">
         <UsersList users={users} onSelect={u=>setSelected(u)} onAdd={addFriend} onSearch={loadUsers} />
         <Friends friends={friends} incoming={incoming} onSelect={u=>setSelected(u)} onAccept={acceptFriend} />
