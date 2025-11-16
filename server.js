@@ -172,6 +172,71 @@ app.get('/api/messages/:withId', authMiddleware, (req, res) => {
   })().catch(err => { console.error('[messages] list error', err); res.status(500).json({ error: 'internal' }); });
 });
 
+// Server management
+app.post('/api/servers', authMiddleware, (req, res) => {
+  const { name } = req.body;
+  (async () => {
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const info = await db.run('INSERT INTO servers (name, owner_id, created_at) VALUES (?, ?, ?)', [name, req.user.id, Date.now()]);
+    const serverId = info.lastInsertRowid;
+    // Auto-join owner
+    await db.run('INSERT INTO server_members (server_id, user_id, joined_at) VALUES (?, ?, ?)', [serverId, req.user.id, Date.now()]);
+    // Create default channel
+    await db.run('INSERT INTO channels (server_id, name, created_at) VALUES (?, ?, ?)', [serverId, 'general', Date.now()]);
+    console.log('[servers] created', name, 'by', req.user.username);
+    res.json({ ok: true, serverId });
+  })().catch(err => { console.error('[servers] create error', err); res.status(500).json({ error: 'internal' }); });
+});
+
+app.get('/api/servers', authMiddleware, (req, res) => {
+  (async () => {
+    const servers = await db.all(`
+      SELECT s.id, s.name, s.owner_id
+      FROM servers s
+      JOIN server_members sm ON sm.server_id = s.id
+      WHERE sm.user_id = ?
+    `, [req.user.id]);
+    res.json({ servers });
+  })().catch(err => { console.error('[servers] list error', err); res.status(500).json({ error: 'internal' }); });
+});
+
+app.get('/api/servers/:serverId/channels', authMiddleware, (req, res) => {
+  const serverId = Number(req.params.serverId);
+  (async () => {
+    // Check membership
+    const member = await db.get('SELECT * FROM server_members WHERE server_id = ? AND user_id = ?', [serverId, req.user.id]);
+    if (!member) return res.status(403).json({ error: 'not a member' });
+    const channels = await db.all('SELECT * FROM channels WHERE server_id = ? ORDER BY id ASC', [serverId]);
+    res.json({ channels });
+  })().catch(err => { console.error('[channels] list error', err); res.status(500).json({ error: 'internal' }); });
+});
+
+app.post('/api/servers/:serverId/channels', authMiddleware, (req, res) => {
+  const serverId = Number(req.params.serverId);
+  const { name } = req.body;
+  (async () => {
+    if (!name) return res.status(400).json({ error: 'name required' });
+    // Check if owner
+    const server = await db.get('SELECT * FROM servers WHERE id = ?', [serverId]);
+    if (!server || server.owner_id !== req.user.id) return res.status(403).json({ error: 'not owner' });
+    await db.run('INSERT INTO channels (server_id, name, created_at) VALUES (?, ?, ?)', [serverId, name, Date.now()]);
+    res.json({ ok: true });
+  })().catch(err => { console.error('[channels] create error', err); res.status(500).json({ error: 'internal' }); });
+});
+
+app.get('/api/channels/:channelId/messages', authMiddleware, (req, res) => {
+  const channelId = Number(req.params.channelId);
+  (async () => {
+    // Check membership via channel -> server -> member
+    const channel = await db.get('SELECT * FROM channels WHERE id = ?', [channelId]);
+    if (!channel) return res.status(404).json({ error: 'channel not found' });
+    const member = await db.get('SELECT * FROM server_members WHERE server_id = ? AND user_id = ?', [channel.server_id, req.user.id]);
+    if (!member) return res.status(403).json({ error: 'not a member' });
+    const msgs = await db.all('SELECT cm.*, u.username FROM channel_messages cm JOIN users u ON u.id = cm.user_id WHERE cm.channel_id = ? ORDER BY cm.created_at ASC', [channelId]);
+    res.json({ messages: msgs });
+  })().catch(err => { console.error('[channel_messages] list error', err); res.status(500).json({ error: 'internal' }); });
+});
+
 // Socket.IO for messaging and WebRTC signaling
 const online = new Map(); // userId -> socket.id
 
@@ -208,6 +273,30 @@ io.on('connection', (socket) => {
       if (toSocket) io.to(toSocket).emit('private_message', payload);
       socket.emit('private_message', payload);
     } catch (err) { console.error('[socket] private_message error', err); }
+
+  socket.on('channel_message', async (data) => {
+    try {
+      const { channelId, content } = data;
+      // Verify membership
+      const channel = await db.get('SELECT * FROM channels WHERE id = ?', [channelId]);
+      if (!channel) return;
+      const member = await db.get('SELECT * FROM server_members WHERE server_id = ? AND user_id = ?', [channel.server_id, userId]);
+      if (!member) return;
+      
+      await db.run('INSERT INTO channel_messages (channel_id, user_id, content, created_at) VALUES (?, ?, ?, ?)', [channelId, userId, content, Date.now()]);
+      const user = await findUserById(userId);
+      const payload = { channelId, userId, username: user.username, content, created_at: Date.now() };
+      console.log('[socket] channel message from', socket.user.username, 'to channel', channelId);
+      
+      // Broadcast to all members of the server
+      const members = await db.all('SELECT user_id FROM server_members WHERE server_id = ?', [channel.server_id]);
+      members.forEach(m => {
+        const memberSocket = online.get(m.user_id);
+        if (memberSocket) io.to(memberSocket).emit('channel_message', payload);
+      });
+    } catch (err) { console.error('[socket] channel_message error', err); }
+  });
+
   });
 
   // WebRTC signaling: offer/answer/candidate

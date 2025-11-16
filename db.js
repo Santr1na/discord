@@ -36,6 +36,31 @@ if (DATABASE_URL) {
       content TEXT,
       created_at BIGINT
     )`);
+    await query(`CREATE TABLE IF NOT EXISTS servers (
+      id SERIAL PRIMARY KEY,
+      name TEXT,
+      owner_id INTEGER,
+      created_at BIGINT
+    )`);
+    await query(`CREATE TABLE IF NOT EXISTS server_members (
+      id SERIAL PRIMARY KEY,
+      server_id INTEGER,
+      user_id INTEGER,
+      joined_at BIGINT
+    )`);
+    await query(`CREATE TABLE IF NOT EXISTS channels (
+      id SERIAL PRIMARY KEY,
+      server_id INTEGER,
+      name TEXT,
+      created_at BIGINT
+    )`);
+    await query(`CREATE TABLE IF NOT EXISTS channel_messages (
+      id SERIAL PRIMARY KEY,
+      channel_id INTEGER,
+      user_id INTEGER,
+      content TEXT,
+      created_at BIGINT
+    )`);
   }
 
   init().catch(console.error);
@@ -92,6 +117,43 @@ if (DATABASE_URL) {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         from_id INTEGER,
         to_id INTEGER,
+        content TEXT,
+        created_at INTEGER
+      )`
+    ).run();
+
+    db.prepare(
+      `CREATE TABLE IF NOT EXISTS servers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        owner_id INTEGER,
+        created_at INTEGER
+      )`
+    ).run();
+
+    db.prepare(
+      `CREATE TABLE IF NOT EXISTS server_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id INTEGER,
+        user_id INTEGER,
+        joined_at INTEGER
+      )`
+    ).run();
+
+    db.prepare(
+      `CREATE TABLE IF NOT EXISTS channels (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id INTEGER,
+        name TEXT,
+        created_at INTEGER
+      )`
+    ).run();
+
+    db.prepare(
+      `CREATE TABLE IF NOT EXISTS channel_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        channel_id INTEGER,
+        user_id INTEGER,
         content TEXT,
         created_at INTEGER
       )`
