@@ -134,6 +134,8 @@ export default function App(){
   const pcRef = useRef(null)
   const audioRef = useRef(null)
   const localStreamRef = useRef(null)
+  const localVideoRef = useRef(null)
+  const remoteVideoRef = useRef(null)
 
   useEffect(()=>{
     if (!token) return;
@@ -216,11 +218,12 @@ export default function App(){
     // create peer, get mic, send offer
     const pc = new RTCPeerConnection()
     pcRef.current = pc
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
     localStreamRef.current = stream
+    if (localVideoRef.current) localVideoRef.current.srcObject = stream
     stream.getTracks().forEach(t => pc.addTrack(t, stream))
     pc.onicecandidate = (e) => { if (e.candidate) socket.emit('webrtc-candidate', { to: targetId, candidate: e.candidate }) }
-    pc.ontrack = (ev) => { console.log('remote track received'); if (audioRef.current) audioRef.current.srcObject = ev.streams[0] }
+    pc.ontrack = (ev) => { console.log('remote track received'); if (audioRef.current) audioRef.current.srcObject = ev.streams[0]; if (remoteVideoRef.current) remoteVideoRef.current.srcObject = ev.streams[0] }
     const offer = await pc.createOffer(); await pc.setLocalDescription(offer)
     socket.emit('webrtc-offer', { to: targetId, offer })
     setCallActivePeerId(targetId)
@@ -238,10 +241,11 @@ export default function App(){
     const pc = new RTCPeerConnection()
     pcRef.current = pc
     pc.onicecandidate = (e) => { if (e.candidate) socket.emit('webrtc-candidate', { to: from, candidate: e.candidate }) }
-    pc.ontrack = (ev) => { console.log('remote track received (receiver)'); if (audioRef.current) audioRef.current.srcObject = ev.streams[0] }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
     localStreamRef.current = stream
+    if (localVideoRef.current) localVideoRef.current.srcObject = stream
     stream.getTracks().forEach(t => pc.addTrack(t, stream))
+    pc.ontrack = (ev) => { console.log('remote track received (receiver)'); if (audioRef.current) audioRef.current.srcObject = ev.streams[0]; if (remoteVideoRef.current) remoteVideoRef.current.srcObject = ev.streams[0] }
     await pc.setRemoteDescription(offer)
     const answer = await pc.createAnswer(); await pc.setLocalDescription(answer)
     socket.emit('webrtc-answer', { to: from, answer })
@@ -293,6 +297,8 @@ export default function App(){
     setMuted(false)
     setDeafened(false)
     localStreamRef.current = null
+    if (localVideoRef.current) localVideoRef.current.srcObject = null
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null
   }
 
   if (!token) return <Auth onAuth={onAuth} />
@@ -300,6 +306,8 @@ export default function App(){
   return (
     <div className="app">
       <audio ref={audioRef} autoPlay />
+      <video ref={localVideoRef} autoPlay muted style={{ display: callActivePeerId ? 'block' : 'none', width: '200px', height: '150px' }} />
+      <video ref={remoteVideoRef} autoPlay style={{ display: callActivePeerId ? 'block' : 'none', width: '200px', height: '150px' }} />
       {incomingCall && (
         <div className="modal">
           {console.log('rendering modal for', incomingCall.username)}
