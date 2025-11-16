@@ -121,13 +121,9 @@ body {
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   color: #dcddde;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 0 8px;
 }
 
 .serverList li:hover {
@@ -169,6 +165,7 @@ body {
   background: #2f3136;
   border-radius: 4px;
   margin: 8px;
+  width: 90%;
 }
 
 .serverList .createForm input {
@@ -187,6 +184,7 @@ body {
   border-radius: 3px;
   font-size: 12px;
   border: none;
+  margin: 0;
 }
 
 /* Middle Sidebar - Channel List */
@@ -197,17 +195,66 @@ body {
   overflow-y: auto;
 }
 
-.channelList h3 {
+.serverActions {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.serverActions button {
+  flex: 1;
+  padding: 6px 8px;
+  background: #5865f2;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.serverActions button:hover {
+  background: #4752c4;
+}
+
+.joinForm {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.joinForm input {
+  flex: 1;
+  padding: 6px;
+  background: #40444b;
+  border: 1px solid #202225;
+  border-radius: 3px;
+  color: #dcddde;
   font-size: 12px;
+}
+
+.joinForm button {
+  padding: 6px 12px;
+  background: #3ba55d;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.channelList h4 {
+  font-size: 11px;
   text-transform: uppercase;
   color: #96989d;
-  margin-bottom: 8px;
-  padding: 0 8px;
+  margin: 12px 8px 4px 8px;
   font-weight: 600;
 }
 
 .channelList ul {
   list-style: none;
+  margin-bottom: 8px;
 }
 
 .channelList li {
@@ -216,7 +263,7 @@ body {
   border-radius: 4px;
   cursor: pointer;
   color: #96989d;
-  font-size: 16px;
+  font-size: 15px;
   transition: all 0.15s;
 }
 
@@ -258,7 +305,8 @@ body {
   margin-top: 8px;
 }
 
-.channelList .createForm input {
+.channelList .createForm input,
+.channelList .createForm select {
   padding: 8px;
   background: #40444b;
   border: 1px solid #202225;
@@ -286,7 +334,7 @@ body {
   flex-direction: column;
 }
 
-.channelChat {
+.channelChat, .directMessage {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -374,6 +422,240 @@ body {
 }
 
 .composer button:hover {
+  background: #4752c4;
+}
+
+/* Voice Channel */
+.voiceChannel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #36393f;
+}
+
+.voiceHeader {
+  height: 48px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #202225;
+  background: #36393f;
+}
+
+.voiceHeader h3 {
+  font-size: 16px;
+  color: #fff;
+}
+
+.voiceContent {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.voiceJoin {
+  text-align: center;
+}
+
+.voiceJoin p {
+  margin-bottom: 16px;
+  color: #96989d;
+}
+
+.joinVoiceBtn {
+  padding: 12px 24px;
+  background: #3ba55d;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.joinVoiceBtn:hover {
+  background: #2d7d46;
+}
+
+.voiceActive {
+  width: 100%;
+  max-width: 600px;
+}
+
+.voiceActive h4 {
+  margin-bottom: 16px;
+  color: #fff;
+  text-align: center;
+}
+
+.voiceUsers {
+  background: #2f3136;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.voiceUser {
+  padding: 8px;
+  margin: 4px 0;
+  background: #40444b;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.voiceUser span {
+  color: #dcddde;
+}
+
+.voiceUser .status {
+  margin-left: 8px;
+}
+
+.voiceControls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.voiceControls button {
+  padding: 10px 16px;
+  background: #5865f2;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.voiceControls button:hover {
+  background: #4752c4;
+}
+
+.voiceControls button.active {
+  background: #ed4245;
+}
+
+.voiceControls button.danger {
+  background: #ed4245;
+}
+
+.voiceControls button.danger:hover {
+  background: #c03537;
+}
+
+/* Friends Panel */
+.friendsPanel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #36393f;
+}
+
+.friendsHeader {
+  height: 48px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #202225;
+}
+
+.friendsHeader h3 {
+  font-size: 16px;
+  color: #fff;
+}
+
+.friendsHeader button {
+  background: transparent;
+  border: none;
+  color: #96989d;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.friendsHeader button:hover {
+  color: #fff;
+}
+
+.friendsSection {
+  padding: 16px;
+  border-bottom: 1px solid #202225;
+}
+
+.friendsSection h4 {
+  margin-bottom: 12px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.friendsSection ul {
+  list-style: none;
+}
+
+.friendsSection li {
+  padding: 8px 12px;
+  margin: 4px 0;
+  background: #2f3136;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  color: #dcddde;
+}
+
+.friendsSection li:hover {
+  background: #393c43;
+}
+
+.friendsSection li button {
+  padding: 4px 12px;
+  background: #5865f2;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.friendsSection li button:hover {
+  background: #4752c4;
+}
+
+.searchBox {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.searchBox input {
+  flex: 1;
+  padding: 8px;
+  background: #40444b;
+  border: 1px solid #202225;
+  border-radius: 3px;
+  color: #dcddde;
+  font-size: 14px;
+}
+
+.searchBox button {
+  padding: 8px 16px;
+  background: #5865f2;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.searchBox button:hover {
   background: #4752c4;
 }
 

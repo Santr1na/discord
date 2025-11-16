@@ -51,7 +51,7 @@ function ServerList({ servers, selectedServerId, onSelect, onCreate }){
       <ul>
         {servers.map(s => (
           <li key={s.id} className={selectedServerId === s.id ? 'active' : ''} onClick={() => onSelect(s)}>
-            {s.name}
+            {s.name.substring(0, 2).toUpperCase()}
           </li>
         ))}
       </ul>
@@ -62,37 +62,77 @@ function ServerList({ servers, selectedServerId, onSelect, onCreate }){
           <button onClick={() => setShowCreate(false)}>Cancel</button>
         </div>
       ) : (
-        <button onClick={() => setShowCreate(true)}>+ New Server</button>
+        <button onClick={() => setShowCreate(true)}>+</button>
       )}
     </div>
   )
 }
 
-function ChannelList({ channels, selectedChannelId, onSelect, onCreate, isOwner }){
+function ChannelList({ channels, selectedChannelId, onSelect, onCreate, isOwner, onInvite, onJoinByCode, onShowFriends }){
   const [showCreate, setShowCreate] = useState(false)
   const [newName, setNewName] = useState('')
+  const [channelType, setChannelType] = useState('text')
+  const [showJoin, setShowJoin] = useState(false)
+  const [joinCode, setJoinCode] = useState('')
 
   async function create(){
     if (!newName) return;
-    await onCreate(newName)
+    await onCreate(newName, channelType)
     setNewName('')
     setShowCreate(false)
   }
 
+  async function joinServer(){
+    if (!joinCode) return;
+    await onJoinByCode(joinCode)
+    setJoinCode('')
+    setShowJoin(false)
+  }
+
+  const textChannels = channels.filter(c => c.type === 'text')
+  const voiceChannels = channels.filter(c => c.type === 'voice')
+
   return (
     <div className="channelList">
-      <h3>Channels</h3>
+      <div className="serverActions">
+        <button onClick={onInvite} className="inviteBtn">Invite</button>
+        <button onClick={() => setShowJoin(!showJoin)} className="joinBtn">Join Server</button>
+        <button onClick={onShowFriends} className="friendsBtn">Friends</button>
+      </div>
+      
+      {showJoin && (
+        <div className="joinForm">
+          <input placeholder="Invite code" value={joinCode} onChange={e=>setJoinCode(e.target.value)} />
+          <button onClick={joinServer}>Join</button>
+        </div>
+      )}
+
+      <h4>TEXT CHANNELS</h4>
       <ul>
-        {channels.map(c => (
+        {textChannels.map(c => (
           <li key={c.id} className={selectedChannelId === c.id ? 'active' : ''} onClick={() => onSelect(c)}>
             # {c.name}
           </li>
         ))}
       </ul>
+
+      <h4>VOICE CHANNELS</h4>
+      <ul>
+        {voiceChannels.map(c => (
+          <li key={c.id} className={selectedChannelId === c.id ? 'active' : ''} onClick={() => onSelect(c)}>
+            🔊 {c.name}
+          </li>
+        ))}
+      </ul>
+
       {isOwner && (
         showCreate ? (
           <div className="createForm">
             <input placeholder="Channel name" value={newName} onChange={e=>setNewName(e.target.value)} />
+            <select value={channelType} onChange={e=>setChannelType(e.target.value)}>
+              <option value="text">Text</option>
+              <option value="voice">Voice</option>
+            </select>
             <button onClick={create}>Create</button>
             <button onClick={() => setShowCreate(false)}>Cancel</button>
           </div>
@@ -167,6 +207,457 @@ function ChannelChat({ socket, me, channel, serverId }){
   )
 }
 
+function VoiceChannel({ socket, me, channel, serverId }){
+  const [inVoice, setInVoice] = useState(false)
+  const [voiceUsers, setVoiceUsers] = useState([])
+  const [muted, setMuted] = useState(false)
+  const [deafened, setDeafened] = useState(false)
+  const [sharingScreen, setSharingScreen] = useState(false)
+  const localStreamRef = useRef(null)
+  const screenStreamRef = useRef(null)
+  const peerConnectionsRef = useRef({})
+  const localAudioRef = useRef(null)
+  const remoteAudiosRef = useRef({})
+
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on('voice-user-joined', (data) => {
+      console.log('User joined voice:', data)
+      setVoiceUsers(prev => [...prev, data])
+      // Initiate connection to new user
+      if (inVoice) createPeerConnection(data.userId)
+    })
+
+    socket.on('voice-user-left', (data) => {
+      console.log('User left voice:', data)
+      setVoiceUsers(prev => prev.filter(u => u.userId !== data.userId))
+      if (peerConnectionsRef.current[data.userId]) {
+        peerConnectionsRef.current[data.userId].close()
+        delete peerConnectionsRef.current[data.userId]
+      }
+    })
+
+    socket.on('voice-offer', async (data) => {
+      console.log('Received voice offer from:', data.from)
+      await handleVoiceOffer(data)
+    })
+
+    socket.on('voice-answer', async (data) => {
+      console.log('Received voice answer from:', data.from)
+      const pc = peerConnectionsRef.current[data.from]
+      if (pc) await pc.setRemoteDescription(data.answer)
+    })
+
+    socket.on('voice-candidate', async (data) => {
+      const pc = peerConnectionsRef.current[data.from]
+      if (pc) await pc.addIceCandidate(data.candidate)
+    })
+
+    socket.on('screen-share-started', (data) => {
+      console.log('User started screen share:', data)
+    })
+
+    socket.on('screen-share-stopped', (data) => {
+      console.log('User stopped screen share:', data)
+    })
+
+    return () => {
+      socket.off('voice-user-joined')
+      socket.off('voice-user-left')
+      socket.off('voice-offer')
+      socket.off('voice-answer')
+      socket.off('voice-candidate')
+      socket.off('screen-share-started')
+      socket.off('screen-share-stopped')
+    }
+  }, [socket, inVoice])
+
+  async function createPeerConnection(targetUserId) {
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    })
+    
+    peerConnectionsRef.current[targetUserId] = pc
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => {
+        pc.addTrack(track, localStreamRef.current)
+      })
+    }
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        socket.emit('voice-candidate', { targetUserId, candidate: e.candidate })
+      }
+    }
+
+    pc.ontrack = (e) => {
+      console.log('Received remote track from:', targetUserId)
+      if (!remoteAudiosRef.current[targetUserId]) {
+        const audio = new Audio()
+        audio.srcObject = e.streams[0]
+        audio.play()
+        remoteAudiosRef.current[targetUserId] = audio
+      }
+    }
+
+    const offer = await pc.createOffer()
+    await pc.setLocalDescription(offer)
+    socket.emit('voice-offer', { channelId: channel.id, targetUserId, offer })
+  }
+
+  async function handleVoiceOffer(data) {
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    })
+    
+    peerConnectionsRef.current[data.from] = pc
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => {
+        pc.addTrack(track, localStreamRef.current)
+      })
+    }
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        socket.emit('voice-candidate', { targetUserId: data.from, candidate: e.candidate })
+      }
+    }
+
+    pc.ontrack = (e) => {
+      console.log('Received remote track from:', data.from)
+      if (!remoteAudiosRef.current[data.from]) {
+        const audio = new Audio()
+        audio.srcObject = e.streams[0]
+        audio.play()
+        remoteAudiosRef.current[data.from] = audio
+      }
+    }
+
+    await pc.setRemoteDescription(data.offer)
+    const answer = await pc.createAnswer()
+    await pc.setLocalDescription(answer)
+    socket.emit('voice-answer', { targetUserId: data.from, answer })
+  }
+
+  async function joinVoice() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      localStreamRef.current = stream
+      if (localAudioRef.current) localAudioRef.current.srcObject = stream
+      
+      socket.emit('voice-join', { channelId: channel.id })
+      setInVoice(true)
+      console.log('Joined voice channel')
+    } catch (err) {
+      console.error('Failed to get media:', err)
+      alert('Could not access microphone')
+    }
+  }
+
+  function leaveVoice() {
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop())
+      localStreamRef.current = null
+    }
+    
+    Object.values(peerConnectionsRef.current).forEach(pc => pc.close())
+    peerConnectionsRef.current = {}
+    
+    Object.values(remoteAudiosRef.current).forEach(audio => audio.pause())
+    remoteAudiosRef.current = {}
+    
+    socket.emit('voice-leave', { channelId: channel.id })
+    setInVoice(false)
+    setVoiceUsers([])
+    console.log('Left voice channel')
+  }
+
+  function toggleMute() {
+    if (localStreamRef.current) {
+      const audioTrack = localStreamRef.current.getAudioTracks()[0]
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled
+        setMuted(!audioTrack.enabled)
+      }
+    }
+  }
+
+  function toggleDeafen() {
+    const newDeafened = !deafened
+    setDeafened(newDeafened)
+    Object.values(remoteAudiosRef.current).forEach(audio => {
+      audio.volume = newDeafened ? 0 : 1
+    })
+  }
+
+  async function toggleScreenShare() {
+    if (!sharingScreen) {
+      try {
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true })
+        screenStreamRef.current = screenStream
+        
+        // Add screen track to all peer connections
+        const screenTrack = screenStream.getVideoTracks()[0]
+        Object.values(peerConnectionsRef.current).forEach(pc => {
+          const sender = pc.getSenders().find(s => s.track?.kind === 'video')
+          if (sender) {
+            sender.replaceTrack(screenTrack)
+          } else {
+            pc.addTrack(screenTrack, screenStream)
+          }
+        })
+        
+        socket.emit('screen-share-start', { channelId: channel.id })
+        setSharingScreen(true)
+        
+        screenTrack.onended = () => {
+          stopScreenShare()
+        }
+      } catch (err) {
+        console.error('Failed to share screen:', err)
+      }
+    } else {
+      stopScreenShare()
+    }
+  }
+
+  function stopScreenShare() {
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach(track => track.stop())
+      screenStreamRef.current = null
+    }
+    socket.emit('screen-share-stop', { channelId: channel.id })
+    setSharingScreen(false)
+  }
+
+  return (
+    <div className="voiceChannel">
+      <div className="voiceHeader">
+        <h3>🔊 {channel.name}</h3>
+      </div>
+      
+      <div className="voiceContent">
+        {!inVoice ? (
+          <div className="voiceJoin">
+            <p>Click to join voice channel</p>
+            <button onClick={joinVoice} className="joinVoiceBtn">Join Voice</button>
+          </div>
+        ) : (
+          <div className="voiceActive">
+            <h4>In Voice Channel</h4>
+            <div className="voiceUsers">
+              <div className="voiceUser">
+                <span>{me.username} (You)</span>
+                {muted && <span className="status">🔇</span>}
+                {deafened && <span className="status">🔇🎧</span>}
+              </div>
+              {voiceUsers.map(u => (
+                <div key={u.userId} className="voiceUser">
+                  <span>{u.username}</span>
+                </div>
+              ))}
+            </div>
+            
+            <div className="voiceControls">
+              <button onClick={toggleMute} className={muted ? 'active' : ''}>
+                {muted ? '🔇 Unmute' : '🎤 Mute'}
+              </button>
+              <button onClick={toggleDeafen} className={deafened ? 'active' : ''}>
+                {deafened ? '🔊 Undeafen' : '🔇 Deafen'}
+              </button>
+              <button onClick={toggleScreenShare} className={sharingScreen ? 'active' : ''}>
+                {sharingScreen ? '🛑 Stop Share' : '🖥️ Share Screen'}
+              </button>
+              <button onClick={leaveVoice} className="danger">
+                Disconnect
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+      
+      <audio ref={localAudioRef} muted autoPlay style={{ display: 'none' }} />
+    </div>
+  )
+}
+
+function FriendsPanel({ socket, me, onClose, onSelectFriend }) {
+  const [friends, setFriends] = useState([])
+  const [incoming, setIncoming] = useState([])
+  const [users, setUsers] = useState([])
+  const [searchQuery, setSearchQuery] = useState('')
+
+  useEffect(() => {
+    loadFriends()
+    loadUsers()
+  }, [])
+
+  useEffect(() => {
+    if (!socket) return
+    socket.on('friend_request', () => {
+      loadFriends()
+    })
+    return () => socket.off('friend_request')
+  }, [socket])
+
+  async function loadFriends() {
+    const res = await fetch('/api/friends', { headers: { 'Authorization': 'Bearer ' + localStorage.token } })
+    const j = await res.json()
+    setFriends(j.friends || [])
+    setIncoming(j.incoming || [])
+  }
+
+  async function loadUsers(q = '') {
+    const url = '/api/users' + (q ? ('?search=' + encodeURIComponent(q)) : '')
+    const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + localStorage.token } })
+    const j = await res.json()
+    setUsers(j.users || [])
+  }
+
+  async function addFriend(username) {
+    const res = await fetch('/api/friends/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.token },
+      body: JSON.stringify({ username })
+    })
+    const j = await res.json()
+    if (j.error) return alert('Error: ' + j.error)
+    alert('Friend request sent!')
+    loadFriends()
+  }
+
+  async function acceptFriend(requesterId) {
+    await fetch('/api/friends/accept', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.token },
+      body: JSON.stringify({ requesterId })
+    })
+    loadFriends()
+  }
+
+  function handleSearch() {
+    loadUsers(searchQuery)
+  }
+
+  return (
+    <div className="friendsPanel">
+      <div className="friendsHeader">
+        <h3>Friends</h3>
+        <button onClick={onClose}>✕</button>
+      </div>
+
+      <div className="friendsSection">
+        <h4>Your Friends</h4>
+        <ul>
+          {friends.map(f => (
+            <li key={f.id} onClick={() => { onSelectFriend(f); onClose(); }}>
+              {f.username}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="friendsSection">
+        <h4>Incoming Requests</h4>
+        <ul>
+          {incoming.map(r => (
+            <li key={r.request_id}>
+              {r.requester_username}
+              <button onClick={() => acceptFriend(r.requester_id)}>Accept</button>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="friendsSection">
+        <h4>Add Friends</h4>
+        <div className="searchBox">
+          <input
+            placeholder="Search users..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+          />
+          <button onClick={handleSearch}>Search</button>
+        </div>
+        <ul>
+          {users.map(u => (
+            <li key={u.id}>
+              {u.username}
+              <button onClick={() => addFriend(u.username)}>Add</button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  )
+}
+
+function DirectMessage({ socket, me, friend }) {
+  const [messages, setMessages] = useState([])
+  const [text, setText] = useState('')
+  const messagesEndRef = useRef(null)
+
+  useEffect(() => {
+    if (!socket || !friend) return
+    const fn = (m) => {
+      if ((m.from === friend.id) || (m.to === friend.id)) fetchMessages()
+    }
+    socket.on('private_message', fn)
+    return () => socket.off('private_message', fn)
+  }, [socket, friend])
+
+  async function fetchMessages() {
+    const res = await fetch('/api/messages/' + friend.id, { headers: { 'Authorization': 'Bearer ' + localStorage.token } })
+    const j = await res.json()
+    setMessages(j.messages || [])
+  }
+
+  useEffect(() => { if (friend) fetchMessages() }, [friend])
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  function send() {
+    if (!text) return
+    socket.emit('private_message', { to: friend.id, content: text })
+    setText('')
+  }
+
+  function handleKeyPress(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      send()
+    }
+  }
+
+  return (
+    <div className="directMessage">
+      <div className="chatHeader">@ {friend.username}</div>
+      <div className="messages">
+        {messages.map(m => (
+          <div key={m.id} className={m.from_id === me.id ? 'msg me' : 'msg them'}>
+            <span className="username">{m.from_id === me.id ? 'You' : friend.username}</span>: {m.content}
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+      <div className="composer">
+        <input
+          value={text}
+          onChange={e => setText(e.target.value)}
+          onKeyPress={handleKeyPress}
+          placeholder={`Message @${friend.username}`}
+        />
+        <button onClick={send}>Send</button>
+      </div>
+    </div>
+  )
+}
+
 export default function App(){
   const API = import.meta.env.VITE_API_BASE || ''
   const [token, setToken] = useState(localStorage.token || null)
@@ -176,17 +667,16 @@ export default function App(){
   const [selectedServer, setSelectedServer] = useState(null)
   const [channels, setChannels] = useState([])
   const [selectedChannel, setSelectedChannel] = useState(null)
+  const [showFriends, setShowFriends] = useState(false)
+  const [selectedFriend, setSelectedFriend] = useState(null)
 
   useEffect(()=>{
     if (!token) return;
     localStorage.token = token
-    // fetch my info
     fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + token } }).then(r=>r.json()).then(j=>{ setMe(j.user) })
-    // connect socket
     const s = (API && API !== '') ? io(API, { auth: { token } }) : io({ auth: { token } })
     setSocket(s)
     s.on('connect_error', e=>console.error('sock err', e))
-
     return () => s.close()
   }, [token])
 
@@ -198,7 +688,6 @@ export default function App(){
     const res = await fetch((API || '') + '/api/servers', { headers: { 'Authorization': 'Bearer ' + token } })
     const j = await res.json(); 
     setServers(j.servers || [])
-    // Auto-select first server if available
     if (j.servers && j.servers.length > 0 && !selectedServer) {
       selectServer(j.servers[0])
     }
@@ -218,29 +707,61 @@ export default function App(){
   async function selectServer(server){
     setSelectedServer(server)
     setSelectedChannel(null)
-    // Load channels
+    setSelectedFriend(null)
     const res = await fetch((API || '') + '/api/servers/' + server.id + '/channels', { 
       headers: { 'Authorization': 'Bearer ' + token } 
     })
     const j = await res.json();
     setChannels(j.channels || [])
-    // Auto-select first channel
     if (j.channels && j.channels.length > 0) {
       setSelectedChannel(j.channels[0])
     }
   }
 
-  async function createChannel(name){
+  async function createChannel(name, type){
     if (!selectedServer) return;
     const res = await fetch((API || '') + '/api/servers/' + selectedServer.id + '/channels', { 
       method:'POST', 
       headers:{'Content-Type':'application/json', 'Authorization':'Bearer ' + token}, 
-      body: JSON.stringify({ name }) 
+      body: JSON.stringify({ name, type }) 
     })
     const j = await res.json();
     if (j.error) return alert('Error: ' + j.error)
-    selectServer(selectedServer) // Reload channels
+    selectServer(selectedServer)
   }
+
+  async function createInvite() {
+    if (!selectedServer) return
+    const res = await fetch('/api/servers/' + selectedServer.id + '/invites', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token }
+    })
+    const j = await res.json()
+    if (j.error) return alert('Error: ' + j.error)
+    
+    const inviteLink = window.location.origin + '?invite=' + j.inviteCode
+    prompt('Share this invite link:', inviteLink)
+  }
+
+  async function joinByInviteCode(code) {
+    const res = await fetch('/api/invites/' + code + '/join', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token }
+    })
+    const j = await res.json()
+    if (j.error) return alert('Error: ' + j.error)
+    alert('Joined server: ' + j.server.name)
+    loadServers()
+  }
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const inviteCode = params.get('invite')
+    if (inviteCode && token) {
+      joinByInviteCode(inviteCode)
+      window.history.replaceState({}, '', '/')
+    }
+  }, [token])
 
   if (!token) return <Auth onAuth={onAuth} />
 
@@ -259,20 +780,41 @@ export default function App(){
           <ChannelList 
             channels={channels} 
             selectedChannelId={selectedChannel?.id} 
-            onSelect={setSelectedChannel} 
+            onSelect={(ch) => { setSelectedChannel(ch); setSelectedFriend(null); }} 
             onCreate={createChannel}
             isOwner={selectedServer.owner_id === me?.id}
+            onInvite={createInvite}
+            onJoinByCode={joinByInviteCode}
+            onShowFriends={() => setShowFriends(true)}
           />
         )}
       </div>
       <div className="mainContent">
-        {selectedChannel && selectedServer ? (
-          <ChannelChat 
+        {showFriends ? (
+          <FriendsPanel 
             socket={socket} 
             me={me} 
-            channel={selectedChannel}
-            serverId={selectedServer.id}
+            onClose={() => setShowFriends(false)}
+            onSelectFriend={(f) => { setSelectedFriend(f); setSelectedChannel(null); }}
           />
+        ) : selectedFriend ? (
+          <DirectMessage socket={socket} me={me} friend={selectedFriend} />
+        ) : selectedChannel && selectedServer ? (
+          selectedChannel.type === 'voice' ? (
+            <VoiceChannel 
+              socket={socket} 
+              me={me} 
+              channel={selectedChannel}
+              serverId={selectedServer.id}
+            />
+          ) : (
+            <ChannelChat 
+              socket={socket} 
+              me={me} 
+              channel={selectedChannel}
+              serverId={selectedServer.id}
+            />
+          )
         ) : (
           <div className="placeholder">
             <h2>Welcome to Discord Clone!</h2>

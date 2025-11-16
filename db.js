@@ -52,7 +52,16 @@ if (DATABASE_URL) {
       id SERIAL PRIMARY KEY,
       server_id INTEGER,
       name TEXT,
+      type TEXT DEFAULT 'text',
       created_at BIGINT
+    )`);
+    await query(`CREATE TABLE IF NOT EXISTS server_invites (
+      id SERIAL PRIMARY KEY,
+      server_id INTEGER,
+      invite_code TEXT UNIQUE,
+      created_by INTEGER,
+      created_at BIGINT,
+      expires_at BIGINT
     )`);
     await query(`CREATE TABLE IF NOT EXISTS channel_messages (
       id SERIAL PRIMARY KEY,
@@ -145,7 +154,19 @@ if (DATABASE_URL) {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         server_id INTEGER,
         name TEXT,
+        type TEXT DEFAULT 'text',
         created_at INTEGER
+      )`
+    ).run();
+
+    db.prepare(
+      `CREATE TABLE IF NOT EXISTS server_invites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id INTEGER,
+        invite_code TEXT UNIQUE,
+        created_by INTEGER,
+        created_at INTEGER,
+        expires_at INTEGER
       )`
     ).run();
 

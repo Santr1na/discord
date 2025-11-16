@@ -181,8 +181,9 @@ app.post('/api/servers', authMiddleware, (req, res) => {
     const serverId = info.lastInsertRowid;
     // Auto-join owner
     await db.run('INSERT INTO server_members (server_id, user_id, joined_at) VALUES (?, ?, ?)', [serverId, req.user.id, Date.now()]);
-    // Create default channel
-    await db.run('INSERT INTO channels (server_id, name, created_at) VALUES (?, ?, ?)', [serverId, 'general', Date.now()]);
+    // Create default text and voice channels
+    await db.run('INSERT INTO channels (server_id, name, type, created_at) VALUES (?, ?, ?, ?)', [serverId, 'general', 'text', Date.now()]);
+    await db.run('INSERT INTO channels (server_id, name, type, created_at) VALUES (?, ?, ?, ?)', [serverId, 'General Voice', 'voice', Date.now()]);
     console.log('[servers] created', name, 'by', req.user.username);
     res.json({ ok: true, serverId });
   })().catch(err => { console.error('[servers] create error', err); res.status(500).json({ error: 'internal' }); });
@@ -219,7 +220,8 @@ app.post('/api/servers/:serverId/channels', authMiddleware, (req, res) => {
     // Check if owner
     const server = await db.get('SELECT * FROM servers WHERE id = ?', [serverId]);
     if (!server || server.owner_id !== req.user.id) return res.status(403).json({ error: 'not owner' });
-    await db.run('INSERT INTO channels (server_id, name, created_at) VALUES (?, ?, ?)', [serverId, name, Date.now()]);
+    const type = req.body.type || 'text';
+    await db.run('INSERT INTO channels (server_id, name, type, created_at) VALUES (?, ?, ?, ?)', [serverId, name, type, Date.now()]);
     res.json({ ok: true });
   })().catch(err => { console.error('[channels] create error', err); res.status(500).json({ error: 'internal' }); });
 });
@@ -235,6 +237,46 @@ app.get('/api/channels/:channelId/messages', authMiddleware, (req, res) => {
     const msgs = await db.all('SELECT cm.*, u.username FROM channel_messages cm JOIN users u ON u.id = cm.user_id WHERE cm.channel_id = ? ORDER BY cm.created_at ASC', [channelId]);
     res.json({ messages: msgs });
   })().catch(err => { console.error('[channel_messages] list error', err); res.status(500).json({ error: 'internal' }); });
+
+// Server invites
+app.post('/api/servers/:serverId/invites', authMiddleware, (req, res) => {
+  const serverId = Number(req.params.serverId);
+  (async () => {
+    // Check if member
+    const member = await db.get('SELECT * FROM server_members WHERE server_id = ? AND user_id = ?', [serverId, req.user.id]);
+    if (!member) return res.status(403).json({ error: 'not a member' });
+    
+    // Generate unique invite code
+    const inviteCode = Math.random().toString(36).substring(2, 10);
+    const expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000); // 7 days
+    
+    await db.run('INSERT INTO server_invites (server_id, invite_code, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?)', 
+      [serverId, inviteCode, req.user.id, Date.now(), expiresAt]);
+    
+    console.log('[invites] created invite', inviteCode, 'for server', serverId);
+    res.json({ inviteCode });
+  })().catch(err => { console.error('[invites] create error', err); res.status(500).json({ error: 'internal' }); });
+});
+
+app.post('/api/invites/:inviteCode/join', authMiddleware, (req, res) => {
+  const inviteCode = req.params.inviteCode;
+  (async () => {
+    const invite = await db.get('SELECT * FROM server_invites WHERE invite_code = ?', [inviteCode]);
+    if (!invite) return res.status(404).json({ error: 'invite not found' });
+    if (invite.expires_at < Date.now()) return res.status(400).json({ error: 'invite expired' });
+    
+    // Check if already a member
+    const existing = await db.get('SELECT * FROM server_members WHERE server_id = ? AND user_id = ?', [invite.server_id, req.user.id]);
+    if (existing) return res.status(400).json({ error: 'already a member' });
+    
+    await db.run('INSERT INTO server_members (server_id, user_id, joined_at) VALUES (?, ?, ?)', [invite.server_id, req.user.id, Date.now()]);
+    
+    const server = await db.get('SELECT * FROM servers WHERE id = ?', [invite.server_id]);
+    console.log('[invites] user', req.user.username, 'joined server', server.name);
+    res.json({ ok: true, server });
+  })().catch(err => { console.error('[invites] join error', err); res.status(500).json({ error: 'internal' }); });
+});
+
 });
 
 // Socket.IO for messaging and WebRTC signaling
@@ -295,6 +337,65 @@ io.on('connection', (socket) => {
         if (memberSocket) io.to(memberSocket).emit('channel_message', payload);
       });
     } catch (err) { console.error('[socket] channel_message error', err); }
+
+  // Voice channel WebRTC signaling
+  socket.on('voice-join', async (data) => {
+    const { channelId } = data;
+    try {
+      const channel = await db.get('SELECT * FROM channels WHERE id = ?', [channelId]);
+      if (!channel || channel.type !== 'voice') return;
+      const member = await db.get('SELECT * FROM server_members WHERE server_id = ? AND user_id = ?', [channel.server_id, userId]);
+      if (!member) return;
+      
+      socket.join(`voice-${channelId}`);
+      console.log('[voice] user', socket.user.username, 'joined voice channel', channelId);
+      
+      // Notify others in the voice channel
+      socket.to(`voice-${channelId}`).emit('voice-user-joined', { userId, username: socket.user.username });
+    } catch (err) { console.error('[voice] join error', err); }
+  });
+
+  socket.on('voice-leave', (data) => {
+    const { channelId } = data;
+    socket.leave(`voice-${channelId}`);
+    socket.to(`voice-${channelId}`).emit('voice-user-left', { userId });
+    console.log('[voice] user', socket.user.username, 'left voice channel', channelId);
+  });
+
+  socket.on('voice-offer', (data) => {
+    const { channelId, targetUserId, offer } = data;
+    const targetSocket = online.get(targetUserId);
+    if (targetSocket) {
+      io.to(targetSocket).emit('voice-offer', { from: userId, username: socket.user.username, offer, channelId });
+    }
+  });
+
+  socket.on('voice-answer', (data) => {
+    const { targetUserId, answer } = data;
+    const targetSocket = online.get(targetUserId);
+    if (targetSocket) {
+      io.to(targetSocket).emit('voice-answer', { from: userId, answer });
+    }
+  });
+
+  socket.on('voice-candidate', (data) => {
+    const { targetUserId, candidate } = data;
+    const targetSocket = online.get(targetUserId);
+    if (targetSocket) {
+      io.to(targetSocket).emit('voice-candidate', { from: userId, candidate });
+    }
+  });
+
+  socket.on('screen-share-start', (data) => {
+    const { channelId } = data;
+    socket.to(`voice-${channelId}`).emit('screen-share-started', { userId, username: socket.user.username });
+  });
+
+  socket.on('screen-share-stop', (data) => {
+    const { channelId } = data;
+    socket.to(`voice-${channelId}`).emit('screen-share-stopped', { userId });
+  });
+
   });
 
   });
