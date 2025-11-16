@@ -315,6 +315,7 @@ io.on('connection', (socket) => {
       if (toSocket) io.to(toSocket).emit('private_message', payload);
       socket.emit('private_message', payload);
     } catch (err) { console.error('[socket] private_message error', err); }
+  });
 
   socket.on('channel_message', async (data) => {
     try {
@@ -337,6 +338,7 @@ io.on('connection', (socket) => {
         if (memberSocket) io.to(memberSocket).emit('channel_message', payload);
       });
     } catch (err) { console.error('[socket] channel_message error', err); }
+  });
 
   // Voice channel WebRTC signaling
   socket.on('voice-join', async (data) => {
@@ -394,10 +396,6 @@ io.on('connection', (socket) => {
   socket.on('screen-share-stop', (data) => {
     const { channelId } = data;
     socket.to(`voice-${channelId}`).emit('screen-share-stopped', { userId });
-  });
-
-  });
-
   });
 
   // WebRTC signaling: offer/answer/candidate

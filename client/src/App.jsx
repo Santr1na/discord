@@ -634,9 +634,180 @@ function DirectMessage({ socket, me, friend }) {
     }
   }
 
+  const [inCall, setInCall] = useState(false)
+  const [incomingCall, setIncomingCall] = useState(null)
+  const pcRef = useRef(null)
+  const localStreamRef = useRef(null)
+  const remoteAudioRef = useRef(null)
+
+  useEffect(() => {
+    if (!socket) return
+
+    socket.on('webrtc-offer', async (data) => {
+      if (data.from === friend.id) {
+        setIncomingCall(data)
+      }
+    })
+
+    socket.on('webrtc-answer', async (data) => {
+      if (data.from === friend.id && pcRef.current) {
+        await pcRef.current.setRemoteDescription(data.answer)
+      }
+    })
+
+    socket.on('webrtc-candidate', async (data) => {
+      if (data.from === friend.id && pcRef.current) {
+        await pcRef.current.addIceCandidate(data.candidate)
+      }
+    })
+
+    socket.on('webrtc-hangup', (data) => {
+      if (data.from === friend.id) {
+        endCall()
+        alert('Call ended')
+      }
+    })
+
+    socket.on('webrtc-reject', (data) => {
+      if (data.from === friend.id) {
+        endCall()
+        alert('Call rejected')
+      }
+    })
+
+    return () => {
+      socket.off('webrtc-offer')
+      socket.off('webrtc-answer')
+      socket.off('webrtc-candidate')
+      socket.off('webrtc-hangup')
+      socket.off('webrtc-reject')
+    }
+  }, [socket, friend])
+
+  async function startCall() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      localStreamRef.current = stream
+
+      const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
+      pcRef.current = pc
+
+      stream.getTracks().forEach(track => pc.addTrack(track, stream))
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          socket.emit('webrtc-candidate', { to: friend.id, candidate: e.candidate })
+        }
+      }
+
+      pc.ontrack = (e) => {
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = e.streams[0]
+          remoteAudioRef.current.play()
+        }
+      }
+
+      const offer = await pc.createOffer()
+      await pc.setLocalDescription(offer)
+      socket.emit('webrtc-offer', { to: friend.id, offer })
+      setInCall(true)
+    } catch (err) {
+      console.error('Failed to start call:', err)
+      alert('Could not access microphone')
+    }
+  }
+
+  async function acceptCall() {
+    if (!incomingCall) return
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      localStreamRef.current = stream
+
+      const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
+      pcRef.current = pc
+
+      stream.getTracks().forEach(track => pc.addTrack(track, stream))
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          socket.emit('webrtc-candidate', { to: friend.id, candidate: e.candidate })
+        }
+      }
+
+      pc.ontrack = (e) => {
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = e.streams[0]
+          remoteAudioRef.current.play()
+        }
+      }
+
+      await pc.setRemoteDescription(incomingCall.offer)
+      const answer = await pc.createAnswer()
+      await pc.setLocalDescription(answer)
+      socket.emit('webrtc-answer', { to: friend.id, answer })
+      
+      setInCall(true)
+      setIncomingCall(null)
+    } catch (err) {
+      console.error('Failed to accept call:', err)
+      alert('Could not access microphone')
+    }
+  }
+
+  function rejectCall() {
+    socket.emit('webrtc-reject', { to: friend.id })
+    setIncomingCall(null)
+  }
+
+  function endCall() {
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop())
+      localStreamRef.current = null
+    }
+    if (pcRef.current) {
+      pcRef.current.close()
+      pcRef.current = null
+    }
+    if (inCall) {
+      socket.emit('webrtc-hangup', { to: friend.id })
+    }
+    setInCall(false)
+  }
+
   return (
     <div className="directMessage">
-      <div className="chatHeader">@ {friend.username}</div>
+      <div className="chatHeader">
+        @ {friend.username}
+        {!inCall ? (
+          <button onClick={startCall} style={{ marginLeft: 'auto', padding: '6px 12px', background: '#3ba55d', color: 'white', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>
+            📞 Call
+          </button>
+        ) : (
+          <button onClick={endCall} style={{ marginLeft: 'auto', padding: '6px 12px', background: '#ed4245', color: 'white', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>
+            📞 Hang Up
+          </button>
+        )}
+      </div>
+
+      {incomingCall && (
+        <div style={{ padding: '16px', background: '#5865f2', color: 'white', textAlign: 'center' }}>
+          <p>Incoming call from {friend.username}</p>
+          <button onClick={acceptCall} style={{ margin: '8px', padding: '8px 16px', background: '#3ba55d', color: 'white', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>
+            Accept
+          </button>
+          <button onClick={rejectCall} style={{ margin: '8px', padding: '8px 16px', background: '#ed4245', color: 'white', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>
+            Reject
+          </button>
+        </div>
+      )}
+
+      {inCall && (
+        <div style={{ padding: '8px', background: '#3ba55d', color: 'white', textAlign: 'center' }}>
+          In call with {friend.username}
+        </div>
+      )}
+
       <div className="messages">
         {messages.map(m => (
           <div key={m.id} className={m.from_id === me.id ? 'msg me' : 'msg them'}>
@@ -654,6 +825,8 @@ function DirectMessage({ socket, me, friend }) {
         />
         <button onClick={send}>Send</button>
       </div>
+      
+      <audio ref={remoteAudioRef} autoPlay style={{ display: 'none' }} />
     </div>
   )
 }
