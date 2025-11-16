@@ -103,7 +103,7 @@ function Chat({ socket, me, peer, onCall }){
 
   return (
     <div className="chat">
-      <div className="chatHeader">Chat with {peer.username} <button onClick={() => onCall(peer.id)}>Call</button></div>
+      <div className="chatHeader">Chat with {peer.username} <button onClick={() => onCall(peer)}>Call</button></div>
       <div className="messages">
         {messages.map(m => <div key={m.id || m.created_at} className={m.from_id === me.id ? 'msg me' : 'msg them'}>{m.from_id === me.id ? 'You' : peer.username}: {m.content}</div>)}
       </div>
@@ -148,7 +148,7 @@ export default function App(){
     s.on('connect_error', e=>console.error('sock err', e))
 
     s.on('webrtc-offer', async (data) => {
-      console.log('incoming call from', data.username)
+      console.log('webrtc-offer received:', data)
       const { from, username, offer } = data
       setIncomingCall({ from, username, offer })
     })
@@ -214,7 +214,8 @@ export default function App(){
     loadFriends()
   }
 
-  async function initiateCall(targetId){
+  async function initiateCall(target){
+    console.log('Initiating call to:', target)
     // create peer, get mic, send offer
     const pc = new RTCPeerConnection()
     pcRef.current = pc
@@ -222,18 +223,19 @@ export default function App(){
     localStreamRef.current = stream
     if (localVideoRef.current) localVideoRef.current.srcObject = stream
     stream.getTracks().forEach(t => pc.addTrack(t, stream))
-    pc.onicecandidate = (e) => { if (e.candidate) socket.emit('webrtc-candidate', { to: targetId, candidate: e.candidate }) }
+    pc.onicecandidate = (e) => { if (e.candidate) socket.emit('webrtc-candidate', { to: target.id, candidate: e.candidate }) }
     pc.ontrack = (ev) => { console.log('remote track received'); if (audioRef.current) { audioRef.current.srcObject = ev.streams[0]; audioRef.current.play().catch(console.error); } if (remoteVideoRef.current) { remoteVideoRef.current.srcObject = ev.streams[0]; remoteVideoRef.current.play().catch(console.error); } }
     const offer = await pc.createOffer(); await pc.setLocalDescription(offer)
-    socket.emit('webrtc-offer', { to: targetId, offer })
-    setCallActivePeerId(targetId)
+    socket.emit('webrtc-offer', { to: target.id, offer })
+    setCallActivePeerId(target.id)
     setCallStartTime(new Date())
     setCallEndTime(null)
   }
 
   useEffect(() => {
     if (outgoingCall && socket) {
-      initiateCall(outgoingCall.to)
+      console.log('Initiating call to:', outgoingCall)
+      initiateCall(outgoingCall)
     }
   }, [outgoingCall, socket])
 
@@ -346,7 +348,10 @@ export default function App(){
           </div>
         {(() => {
           const peer = friends.find(f => f.id === selected) || users.find(u => u.id === selected);
-          return peer ? <Chat socket={socket} me={me} peer={peer} onCall={(callData) => setOutgoingCall(callData)} onHangup={hangup} /> : <div className="placeholder">Choose a user to start chatting</div>;
+          return peer ? <Chat socket={socket} me={me} peer={peer} onCall={(peerData) => {
+            console.log('Call button clicked for:', peerData)
+            setOutgoingCall(peerData)
+          }} onHangup={hangup} /> : <div className="placeholder">Choose a user to start chatting</div>;
         })()}
       </div>
       <div className="meta">Logged as: {me && me.username}</div>
