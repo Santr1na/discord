@@ -128,8 +128,12 @@ export default function App(){
   const [callStartTime, setCallStartTime] = useState(null)
   const [callEndTime, setCallEndTime] = useState(null)
   const [incomingCall, setIncomingCall] = useState(null)
+  const [outgoingCall, setOutgoingCall] = useState(null)
+  const [muted, setMuted] = useState(false)
+  const [deafened, setDeafened] = useState(false)
   const pcRef = useRef(null)
   const audioRef = useRef(null)
+  const localStreamRef = useRef(null)
 
   useEffect(()=>{
     if (!token) return;
@@ -142,6 +146,7 @@ export default function App(){
     s.on('connect_error', e=>console.error('sock err', e))
 
     s.on('webrtc-offer', async (data) => {
+      console.log('incoming call from', data.username)
       const { from, username, offer } = data
       setIncomingCall({ from, username, offer })
     })
@@ -164,7 +169,13 @@ export default function App(){
       alert('Call ended by other user')
     })
 
-    s.on('friend_request', () => {
+    s.on('webrtc-reject', (data) => {
+      setOutgoingCall(null)
+      alert('Call rejected')
+    })
+
+    s.on('friend_request', (data) => {
+      console.log('friend request received', data)
       loadFriends()
     })
 
@@ -201,14 +212,15 @@ export default function App(){
     loadFriends()
   }
 
-  async function startCall(targetId){
+  async function initiateCall(targetId){
     // create peer, get mic, send offer
     const pc = new RTCPeerConnection()
     pcRef.current = pc
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    localStreamRef.current = stream
     stream.getTracks().forEach(t => pc.addTrack(t, stream))
     pc.onicecandidate = (e) => { if (e.candidate) socket.emit('webrtc-candidate', { to: targetId, candidate: e.candidate }) }
-    pc.ontrack = (ev) => { if (audioRef.current) audioRef.current.srcObject = ev.streams[0] }
+    pc.ontrack = (ev) => { console.log('remote track received'); if (audioRef.current) audioRef.current.srcObject = ev.streams[0] }
     const offer = await pc.createOffer(); await pc.setLocalDescription(offer)
     socket.emit('webrtc-offer', { to: targetId, offer })
     setCallActivePeerId(targetId)
@@ -216,12 +228,19 @@ export default function App(){
     setCallEndTime(null)
   }
 
+  useEffect(() => {
+    if (outgoingCall && socket) {
+      initiateCall(outgoingCall.to)
+    }
+  }, [outgoingCall, socket])
+
   async function startAsReceiver(from, offer, socket){
     const pc = new RTCPeerConnection()
     pcRef.current = pc
     pc.onicecandidate = (e) => { if (e.candidate) socket.emit('webrtc-candidate', { to: from, candidate: e.candidate }) }
-    pc.ontrack = (ev) => { if (audioRef.current) audioRef.current.srcObject = ev.streams[0] }
+    pc.ontrack = (ev) => { console.log('remote track received (receiver)'); if (audioRef.current) audioRef.current.srcObject = ev.streams[0] }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    localStreamRef.current = stream
     stream.getTracks().forEach(t => pc.addTrack(t, stream))
     await pc.setRemoteDescription(offer)
     const answer = await pc.createAnswer(); await pc.setLocalDescription(answer)
@@ -231,6 +250,7 @@ export default function App(){
   }
 
   async function acceptCall(){
+    console.log('accepting call')
     if (!incomingCall) return;
     const { from, offer } = incomingCall;
     setIncomingCall(null);
@@ -241,9 +261,28 @@ export default function App(){
   }
 
   function rejectCall(){
+    console.log('rejecting call')
     if (!incomingCall) return;
     socket.emit('webrtc-reject', { to: incomingCall.from });
     setIncomingCall(null);
+  }
+
+  function toggleMute(){
+    if (localStreamRef.current) {
+      const track = localStreamRef.current.getAudioTracks()[0]
+      if (track) {
+        track.enabled = !track.enabled
+        setMuted(!muted)
+      }
+    }
+  }
+
+  function toggleDeafen(){
+    const newDeafened = !deafened
+    setDeafened(newDeafened)
+    if (audioRef.current) {
+      audioRef.current.volume = newDeafened ? 0 : 1
+    }
   }
 
   function hangup(){
@@ -251,6 +290,9 @@ export default function App(){
     if (callActivePeerId && socket) socket.emit('webrtc-hangup', { to: callActivePeerId })
     setCallActivePeerId(null)
     setCallEndTime(new Date())
+    setMuted(false)
+    setDeafened(false)
+    localStreamRef.current = null
   }
 
   if (!token) return <Auth onAuth={onAuth} />
@@ -260,10 +302,19 @@ export default function App(){
       <audio ref={audioRef} autoPlay />
       {incomingCall && (
         <div className="modal">
+          {console.log('rendering modal for', incomingCall.username)}
           <div className="modalContent">
             <h3>Incoming call from {incomingCall.username}</h3>
             <button className="btn" onClick={acceptCall}>Accept</button>
             <button className="btn danger" onClick={rejectCall}>Reject</button>
+          </div>
+        </div>
+      )}
+      {outgoingCall && (
+        <div className="modal">
+          <div className="modalContent">
+            <h3>Calling {outgoingCall.username}...</h3>
+            <button className="btn danger" onClick={() => setOutgoingCall(null)}>Cancel</button>
           </div>
         </div>
       )}
@@ -277,9 +328,15 @@ export default function App(){
             <div className="callStatus">{callActivePeerId ? 'In call' : 'Not in call'}</div>
             {callStartTime && <div>Call started at: {callStartTime.toLocaleTimeString()}</div>}
             {callEndTime && <div>Call ended at: {callEndTime.toLocaleTimeString()}</div>}
-            {callActivePeerId && <button className="btn danger" onClick={hangup}>Hang Up</button>}
+            {callActivePeerId && (
+              <>
+                <button className="btn" onClick={toggleMute}>{muted ? 'Unmute' : 'Mute'}</button>
+                <button className="btn" onClick={toggleDeafen}>{deafened ? 'Undeafen' : 'Deafen'}</button>
+                <button className="btn danger" onClick={hangup}>Hang Up</button>
+              </>
+            )}
           </div>
-        {selected ? <Chat socket={socket} me={me} peer={selected} onCall={startCall} onHangup={hangup} /> : <div className="placeholder">Choose a user to start chatting</div>}
+        {selected ? <Chat socket={socket} me={me} peer={selected} onCall={(callData) => setOutgoingCall(callData)} onHangup={hangup} /> : <div className="placeholder">Choose a user to start chatting</div>}
       </div>
       <div className="meta">Logged as: {me && me.username}</div>
     </div>

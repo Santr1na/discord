@@ -106,8 +106,14 @@ app.post('/api/friends/add', authMiddleware, (req, res) => {
     if (existing) return res.status(400).json({ error: 'request exists' });
     await db.run('INSERT INTO friends (requester, addressee, status) VALUES (?, ?, ?)', [req.user.id, addressee.id, 'pending']);
     // Notify addressee
+    console.log('[friends] request sent from', req.user.username, 'to', addressee.username)
     const addresseeSocket = online.get(addressee.id);
-    if (addresseeSocket) io.to(addresseeSocket).emit('friend_request', { from: req.user.id, username: req.user.username });
+    if (addresseeSocket) {
+      io.to(addresseeSocket).emit('friend_request', { from: req.user.id, username: req.user.username });
+      console.log('[friends] notified', addressee.username)
+    } else {
+      console.log('[friends] addressee not online', addressee.username)
+    }
     res.json({ ok: true });
   })().catch(err => { console.error('[friends] add error', err); res.status(500).json({ error: 'internal' }); });
 });
@@ -206,11 +212,15 @@ io.on('connection', (socket) => {
 
   // WebRTC signaling: offer/answer/candidate
   socket.on('webrtc-offer', async (data) => {
+    console.log('[socket] webrtc-offer from', socket.user.username, 'to', data.to)
     const { to, offer } = data;
     const toSocket = online.get(to);
     if (toSocket) {
       const fromUser = await findUserById(userId);
       io.to(toSocket).emit('webrtc-offer', { from: userId, username: fromUser.username, offer });
+      console.log('[socket] sent webrtc-offer to', fromUser.username)
+    } else {
+      console.log('[socket] user not online', to)
     }
   });
 
@@ -230,6 +240,12 @@ io.on('connection', (socket) => {
     const { to } = data;
     const toSocket = online.get(to);
     if (toSocket) io.to(toSocket).emit('webrtc-hangup', { from: userId });
+  });
+
+  socket.on('webrtc-reject', (data) => {
+    const { to } = data;
+    const toSocket = online.get(to);
+    if (toSocket) io.to(toSocket).emit('webrtc-reject', { from: userId });
   });
 
   socket.on('disconnect', () => {

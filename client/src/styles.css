@@ -1,5 +1,5 @@
 :root{
-	--bg:#0f1724; --card:#111827; --muted:#94a3b8; --accent:#7c3aed; --accent-2:#06b6d4; --surface:#0b1220;
+	--bg:#36393f; --card:#2f3136; --muted:#b9bbbe; --accent:#5865f2; --accent-2:#57f287; --surface:#202225;
 }
 body, html, #root { height: 100%; margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; background: linear-gradient(180deg,#071029 0%, #071a2a 100%); color: #e6eef8 }
 .app { display:flex; height:100vh; gap:12px; padding:12px; box-sizing:border-box }
@@ -8,7 +8,7 @@ body, html, #root { height: 100%; margin: 0; font-family: Inter, ui-sans-serif, 
 .meta { width: 220px; background: rgba(255,255,255,0.03); border-radius:12px; padding:12px; }
 .panel ul { padding:0; margin:8px 0 0 0; }
 .panel li { list-style:none; padding:10px; display:flex; justify-content:space-between; align-items:center; gap:8px; border-radius:8px }
-.panel li:hover { background: rgba(255,255,255,0.02) }
+.panel li:hover { background: rgba(255,255,255,0.1) }
 .auth { max-width:420px; margin: 60px auto; background: rgba(255,255,255,0.02); padding:20px; border-radius:10px }
 .auth input { display:block; width:100%; margin:8px 0; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.04); background:transparent; color:inherit }
 .row { display:flex; gap:8px }
@@ -20,12 +20,14 @@ body, html, #root { height: 100%; margin: 0; font-family: Inter, ui-sans-serif, 
 .chatHeader { display:flex; justify-content:space-between; align-items:center }
 
 /* Buttons */
-.btn { background: linear-gradient(90deg,var(--accent), var(--accent-2)); color: white; border: none; padding:12px 20px; border-radius:8px; cursor: pointer; box-shadow: 0 6px 16px rgba(124,58,237,0.18); font-size:1rem; font-weight:600; }
+.btn { background: var(--accent); color: white; border: none; padding:12px 20px; border-radius:8px; cursor: pointer; font-size:1rem; font-weight:600; transition: background 0.2s; }
+.btn:hover { background: #4752c4; }
 .btn.small { padding:8px 12px; font-size:0.9rem }
-.btn.danger { background: linear-gradient(90deg,#ef4444,#dc2626); box-shadow: 0 6px 16px rgba(220,38,38,0.18) }
+.btn.danger { background: #f04747; }
+.btn.danger:hover { background: #d84040; }
 .btn:active{ transform: translateY(1px) }
-.linkLike { background: transparent; border: none; color: var(--accent-2); cursor: pointer; font-weight:600 }
-.linkLike:hover{ text-decoration:underline }
+.linkLike { background: transparent; border: none; color: var(--accent); cursor: pointer; font-weight:600; transition: color 0.2s; }
+.linkLike:hover{ color: #7289da; text-decoration:underline }
 
 .searchRow { display:flex; gap:8px; }
 .searchRow input{ flex:1; padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.04); background:transparent }
@@ -38,7 +40,16 @@ body, html, #root { height: 100%; margin: 0; font-family: Inter, ui-sans-serif, 
 button, .linkLike { cursor: pointer }
 
 /* Modal */
-.modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modalContent { background: var(--card); padding: 20px; border-radius: 12px; text-align: center; }
-.modalContent h3 { margin-top: 0; }
+.modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.modalContent { background: var(--card); padding: 30px; border-radius: 8px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.5); border: 1px solid #202225; }
+.modalContent h3 { margin-top: 0; color: #fff; }
+.modalContent .btn { margin: 10px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .app { flex-direction: column; height: auto; min-height: 100vh; }
+  .sidebar { width: 100%; order: 2; }
+  .main { width: 100%; order: 1; }
+  .meta { width: 100%; order: 3; }
+}
 

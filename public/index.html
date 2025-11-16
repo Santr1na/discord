@@ -3,44 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Discord Mini - Prototype</title>
-    <link rel="stylesheet" href="styles.css" />
+    <title>Discord Mini - React</title>
+    <script type="module" crossorigin src="/assets/index-D30jbd-X.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DM9WtKwh.css">
   </head>
   <body>
-    <div id="auth">
-      <h2>Register / Login</h2>
-      <input id="username" placeholder="username" />
-      <input id="password" placeholder="password" type="password" />
-      <div>
-        <button id="btnRegister">Register</button>
-        <button id="btnLogin">Login</button>
-      </div>
-      <div id="authMsg"></div>
-    </div>
-
-    <div id="main" style="display:none">
-      <div class="left">
-        <h3>Users</h3>
-        <ul id="users"></ul>
-        <h3>Friends</h3>
-        <ul id="friends"></ul>
-      </div>
-      <div class="center">
-        <div id="chatHeader">Select a user to chat</div>
-        <div id="messages"></div>
-        <div id="composer">
-          <input id="msgInput" placeholder="Message" />
-          <button id="sendBtn">Send</button>
-          <button id="callBtn">Call</button>
-        </div>
-      </div>
-      <div class="right">
-        <h3>Info</h3>
-        <div id="me"></div>
-      </div>
-    </div>
-
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <script src="app.js"></script>
+    <div id="root"></div>
   </body>
 </html>
